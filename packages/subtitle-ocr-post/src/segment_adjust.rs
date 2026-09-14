@@ -1,6 +1,6 @@
 //! 字幕段置信度调整（Y 偏移惩罚 + 孤立惩罚）。
 
-use ocr_types::{FrameResult, OcrSegment, YStats};
+use subtitle_ocr_types::{FrameResult, OcrSegment, YStats};
 use serde::{Deserialize, Serialize};
 
 /// 字幕段置信度调整参数。

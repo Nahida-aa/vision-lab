@@ -25,6 +25,8 @@ path = "src/main.rs"
 
 [dependencies]
 ocr-types = { workspace = true }
+# 字幕 OCR 产物/管线类型（FrameResult/OcrFrames*/MergeFrames*/工具函数等）。
+subtitle-ocr-types = { workspace = true }
 subtitle-ocr-post = { workspace = true }
 # OCR 引擎（det/rec/cls 推理 + 模型加载 + 字典），本包只做字幕专属逻辑。
 # 纯感知层（合并逻辑已迁入本包的 ocr_post::merge_frames / merge-frames CLI）。

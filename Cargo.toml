@@ -5,6 +5,8 @@ members = [
     "packages/geometry", "packages/subtitle-finder", "packages/ocr-types", "packages/subtitle-ocr-post",
     # 纯字幕领域底座（SubtitleSegment，无 OCR 依赖）。
     "packages/subtitle",
+    # 字幕 OCR 产物/管线类型（FrameResult/OcrSegment/OcrFrames*/MergeFrames*/工具函数）。
+    "packages/subtitle-ocr-types",
     # 颜色连通域原语 + 布局层（examples/split-panels 演示纯图片 UI 的切分）。
     "packages/color-analysis", "packages/ocr-layout",
     # 界面自动化代理（识别→定位→点击，依赖 ocr-layout / capturer / screen-operator）。
@@ -83,6 +85,7 @@ mimalloc = { version = "0.1", default-features = false }
 rapidocr-ort = { path = "packages/rapidocr-ort" }
 ocr-types = { path = "packages/ocr-types" }
 subtitle = { path = "packages/subtitle" }
+subtitle-ocr-types = { path = "packages/subtitle-ocr-types" }
 subtitle-ocr-post = { path = "packages/subtitle-ocr-post" }
 subtitle-finder = { path = "packages/subtitle-finder" }
 subtitle-ocr = { path = "packages/subtitle-ocr" }

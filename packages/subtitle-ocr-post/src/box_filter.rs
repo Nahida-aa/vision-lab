@@ -4,7 +4,7 @@ use crate::box_adjust::{
     FrameResultBoxWithAdjust, OcrBoxResultWithAdjust, OcrFramesBoxFilteredResult,
     OcrFramesBoxFilteredResultMeta,
 };
-use ocr_types::{aggregate_boxes, compute_box_y_stats, FrameResult};
+use subtitle_ocr_types::{aggregate_boxes, compute_box_y_stats, FrameResult};
 
 /// 过滤离群框：逐帧剔除 `is_outlier` 的框后，重新聚合得到干净帧。
 pub fn ocr_frames_filter_box(frames: &[FrameResultBoxWithAdjust]) -> OcrFramesBoxFilteredResult {

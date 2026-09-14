@@ -3,7 +3,8 @@
 //! 字幕 OCR 专用层，构建在 [`rapidocr_ort::OcrEngine`]（PP-OCR det/rec/cls）之上。
 //!
 //! 类型与算法已拆分为独立 crate（无 ort 依赖）：
-//! - [`ocr_types`] — 纯数据类型 + 工具函数
+//! - [`ocr_types`] — 原子检测框 `OcrBoxResult`
+//! - [`subtitle_ocr_types`] — 字幕 OCR 产物/管线类型（FrameResult/OcrSegment/OcrFrames*/MergeFrames*）+ 工具函数
 //! - [`subtitle_ocr_post`] — OCR 后处理算法（merge/filter/adjust）
 //!
 //! 本包仅保留引擎封装（`SubtitleOcr`）与批量入口（`ocr_entries`）。
@@ -26,13 +27,15 @@ pub use subtitle_ocr_post;
 pub use subtitle_ocr_post as ocr_post;
 
 // ── 批量导出（对齐旧 API 路径） ──
-pub use ocr_types::*;
+// 字幕 OCR 产物/管线类型（含 SubtitleSegment 透出）+ 工具函数来自 subtitle-ocr-types；
+// 原子检测框 OcrBoxResult 仍定义在 ocr-types。
+pub use subtitle_ocr_types::*;
+pub use ocr_types::{OcrBoxResult};
 pub use subtitle_ocr_post::{
     BoxAdjustedArgs, FrameResultBoxWithAdjust, OcrBoxAdjustResult, OcrBoxAdjustResultMeta,
     OcrBoxResultWithAdjust, OcrFramesBoxFilteredResult, OcrFramesBoxFilteredResultMeta,
     OcrSegmentAdjustArgs, OcrSegmentFilterData, OcrSegmentFilterMeta, OcrSegmentFilterResult,
-    OcrSegmentWithAdjust, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame,
-    base_merge_frames, dedup_overlap, merge_adjacent_same_text, merge_frames,
+    OcrSegmentWithAdjust, base_merge_frames, dedup_overlap, merge_adjacent_same_text, merge_frames,
     merge_substring_segments, ocr_frames_adjust_box, ocr_frames_filter_box, ocr_segment_adjust,
     ocr_segment_filter, ocr_segment_filter_with_meta, remove_triplet_noise,
 };
@@ -167,25 +170,25 @@ pub struct OcrEntry {
     pub times: FrameTimes,
 }
 
-pub fn ocr_entry(ocr: &mut SubtitleOcr, entry: &OcrEntry) -> Result<Vec<ocr_types::FrameResult>> {
+pub fn ocr_entry(ocr: &mut SubtitleOcr, entry: &OcrEntry) -> Result<Vec<subtitle_ocr_types::FrameResult>> {
     let rgb = rapidocr_ort::load_image(&entry.path)?;
     let boxes = ocr.ocr_image(&rgb)?;
-    let aggregated = ocr_types::aggregate_boxes(&boxes);
+    let aggregated = subtitle_ocr_types::aggregate_boxes(&boxes);
     let out = match entry.times {
         FrameTimes::None => vec![aggregated],
-        FrameTimes::Single(t) => vec![ocr_types::FrameResult {
+        FrameTimes::Single(t) => vec![subtitle_ocr_types::FrameResult {
             timestamp: t,
             ..aggregated
         }],
         FrameTimes::Range(s, end) => vec![
-            ocr_types::FrameResult { timestamp: s, ..aggregated.clone() },
-            ocr_types::FrameResult { timestamp: end, ..aggregated },
+            subtitle_ocr_types::FrameResult { timestamp: s, ..aggregated.clone() },
+            subtitle_ocr_types::FrameResult { timestamp: end, ..aggregated },
         ],
     };
     Ok(out)
 }
 
-pub fn ocr_entries(ocr: &mut SubtitleOcr, entries: &[OcrEntry]) -> Result<Vec<ocr_types::FrameResult>> {
+pub fn ocr_entries(ocr: &mut SubtitleOcr, entries: &[OcrEntry]) -> Result<Vec<subtitle_ocr_types::FrameResult>> {
     let mut out = Vec::with_capacity(entries.len());
     for e in entries {
         out.extend(ocr_entry(ocr, e)?);

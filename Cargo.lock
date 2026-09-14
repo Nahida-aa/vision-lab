@@ -6618,6 +6618,7 @@ dependencies = [
  "serde",
  "serde_json",
  "subtitle-ocr-post",
+ "subtitle-ocr-types",
  "tracing",
  "tracing-subscriber",
 ]
@@ -6632,8 +6633,19 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "subtitle-ocr-types",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "subtitle-ocr-types"
+version = "0.1.0"
+dependencies = [
+ "ocr-types",
+ "serde",
+ "specta",
+ "subtitle",
 ]
 
 [[package]]

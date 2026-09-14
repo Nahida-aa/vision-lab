@@ -1,9 +1,9 @@
 //! 多帧合并流水线（base_merge_frames → substring merge → triplet noise → dedup → adjacent same text）。
 //!
-//! All types are imported from `ocr-types`; this module contains only algorithm functions
-//! and ocr_post-specific result types.
+//! All types/functions are imported from `subtitle-ocr-types`; this module contains only
+//! algorithm functions and ocr_post-specific result types.
 
-use ocr_types::{
+use subtitle_ocr_types::{
     avg_confidence, edit_distance, is_substring_of, merge_confidence, normalize, overlap,
     FrameResult, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame, SubtitleSegment,
 };

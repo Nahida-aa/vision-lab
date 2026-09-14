@@ -21,9 +21,12 @@ pub use merge_frames::{
     base_merge_frames, dedup_overlap, merge_adjacent_same_text, merge_frames,
     merge_substring_segments, remove_triplet_noise,
 };
-pub use ocr_types::{
-    FrameResult, MergeFramesArgs, MergeFramesResult, OcrBoxResult, OcrSegment, SegmentFrame,
-    SubtitleSegment, XStats, YStats, avg_confidence, compute_box_x_stats, compute_box_y_stats,
+// 原子检测框 OcrBoxResult 仍定义在 ocr-types；其余字幕/OCR 产物与管线类型 +
+// 工具函数（含 SubtitleSegment 透出）统一来自 subtitle-ocr-types。
+pub use ocr_types::{OcrBoxResult};
+pub use subtitle_ocr_types::{
+    FrameResult, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame, SubtitleSegment,
+    XStats, YStats, aggregate_boxes, avg_confidence, compute_box_x_stats, compute_box_y_stats,
     edit_distance, is_substring_of, merge_confidence, normalize, overlap,
 };
 pub use segment_adjust::{

@@ -11,7 +11,9 @@ description = "OCR post-processing algorithms (merge, filter, adjust) — no ort
 [features]
 default = []
 # 为 OCR 结果类型导出 specta::Type（供 LocalDub fnrpc 注册进 bindings）。
-specta-types = ["specta", "ocr-types/specta-types"]
+# SubtitleSegment / OcrSegment / SegmentFrame 的 specta 派生由 subtitle-ocr-types
+# （及其依赖的 subtitle）提供，这里一并开启。
+specta-types = ["specta", "subtitle-ocr-types/specta-types"]
 
 # 后处理 CLI：单一汇总入口（src/main.rs）。5 个单步 CLI 已合并进
 # `ocr-post`（现二进制名 = 包名 subtitle-ocr-post），单步只在本项目内单测，
@@ -20,6 +22,9 @@ specta-types = ["specta", "ocr-types/specta-types"]
 
 [dependencies]
 ocr-types = { workspace = true }
+# 字幕 OCR 产物/管线类型（FrameResult/OcrSegment/MergeFrames*/工具函数等）与
+# SubtitleSegment 透出，均来自 subtitle-ocr-types。
+subtitle-ocr-types = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 specta = { workspace = true, optional = true }

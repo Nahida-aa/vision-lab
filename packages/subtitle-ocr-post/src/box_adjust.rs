@@ -1,6 +1,7 @@
 //! 字幕框调整（行对齐后的离群剔除 / 置信度调整）。
 
-use ocr_types::{FrameResult, OcrBoxResult, XStats, YStats};
+use ocr_types::OcrBoxResult;
+use subtitle_ocr_types::{FrameResult, XStats, YStats};
 use serde::{Deserialize, Serialize};
 
 /// box 调整的置信度阈值参数。
