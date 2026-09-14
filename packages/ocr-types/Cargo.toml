@@ -8,11 +8,9 @@ description = "Pure data types + utility functions for OCR pipeline (no heavy de
 
 [features]
 default = []
-# 为兼容透出的 SubtitleSegment 保持 specta 派生（规范派生在 subtitle crate）。
-specta-types = ["specta", "subtitle/specta-types"]
+# OcrBoxResult 当前无 specta 派生；保留 feature 仅用于按需启用可选 specta 依赖。
+specta-types = ["specta"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 specta = { workspace = true, optional = true }
-# 纯字幕领域底座（SubtitleSegment 在此定义，本 crate 仅透出以兼容既有引用）。
-subtitle = { workspace = true }

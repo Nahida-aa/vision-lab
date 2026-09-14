@@ -1,19 +1,14 @@
 //! `subtitle-ocr` 引擎的原子检测框类型（纯数据，无 ort/opencv 依赖）。
 //!
-//! 本 crate 只保留最底层的 OCR 检测产物 [`OcrBoxResult`]，并为兼容保留
-//! [`SubtitleSegment`] 透出（其规范定义在 `subtitle` crate）。
+//! 本 crate 只保留最底层的 OCR 检测产物 [`OcrBoxResult`]，不依赖任何上层域类型。
+//! 更高层的字幕 / OCR 产物与管线类型已迁到 `subtitle`（`SubtitleSegment`）与
+//! `subtitle-ocr-types`（FrameResult / OcrSegment / OcrFrames* / MergeFrames* 等）。
 //!
-//! 更高层的字幕 / OCR 产物与管线类型（`FrameResult` / `OcrSegment` /
-//! `OcrFramesResult` / `MergeFrames*` / `XStats` / `YStats` 及工具函数）已迁到
-//! `subtitle-ocr-types`。
-//!
-//! 分层：`subtitle`（纯字幕领域）← `ocr-types`（原子检测框）← `subtitle-ocr-types`。
+//! 分层：`subtitle`（纯字幕领域，SubtitleSegment）← `ocr-types`（原子检测框
+//! OcrBoxResult）← `subtitle-ocr-types`。`SubtitleSegment` 的规范来源是 `subtitle`，
+//! 下游应从 `subtitle` 或其汇总 crate `subtitle-ocr-types` 取，而非 `ocr_types`。
 
 use serde::{Deserialize, Serialize};
-
-// 纯字幕领域类型本定义在 `subtitle` crate；此处透出仅为兼容既有 `ocr_types::*`
-// 引用（LocalDub fnrpc 等），规范来源仍是 `subtitle`。
-pub use subtitle::SubtitleSegment;
 
 /// 单个文字识别区域（detected text box）。
 ///

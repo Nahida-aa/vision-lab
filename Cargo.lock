@@ -4694,7 +4694,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "specta",
- "subtitle",
 ]
 
 [[package]]
