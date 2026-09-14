@@ -3,9 +3,10 @@
 //! All types/functions are imported from `subtitle-ocr-types`; this module contains only
 //! algorithm functions and ocr_post-specific result types.
 
+use subtitle::SubtitleSegment;
 use subtitle_ocr_types::{
     avg_confidence, edit_distance, is_substring_of, merge_confidence, normalize, overlap,
-    FrameResult, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame, SubtitleSegment,
+    FrameResult, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame,
 };
 
 /// 合并两个段（公共逻辑）：时间取 min/max，置信度取 merge_confidence，frame_count 相加，frames 拼接。

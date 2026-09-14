@@ -14,9 +14,9 @@
 
 use serde::{Deserialize, Serialize};
 
-// 纯字幕领域类型（文本 + 时间跨度）由 `subtitle` crate 提供，本 crate 透出以便
-// 下游统一从 `subtitle_ocr_types` 取全部字幕 / OCR 类型。
-pub use subtitle::SubtitleSegment;
+// 纯字幕领域类型（文本 + 时间跨度）由 `subtitle` crate 提供，其权威定义只在 `subtitle`。
+// 本 crate 仅为内部构成 [`OcrSegment`] 的 `#[serde(flatten)]` 字段而私有引用，不对外转发。
+use subtitle::SubtitleSegment;
 // 原子检测框定义在 ocr-types，本 crate 内部（FrameResult / 统计 / aggregate_boxes）用到。
 use ocr_types::OcrBoxResult;
 

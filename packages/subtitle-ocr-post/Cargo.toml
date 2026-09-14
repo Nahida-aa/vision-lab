@@ -22,8 +22,9 @@ specta-types = ["specta", "subtitle-ocr-types/specta-types"]
 
 [dependencies]
 ocr-types = { workspace = true }
-# 字幕 OCR 产物/管线类型（FrameResult/OcrSegment/MergeFrames*/工具函数等）与
-# SubtitleSegment 透出，均来自 subtitle-ocr-types。
+# 字幕 OCR 产物/管线类型（FrameResult/OcrSegment/MergeFrames*/工具函数等）来自
+# subtitle-ocr-types；SubtitleSegment 的权威定义只在 `subtitle`，此处直接依赖以便构造。
+subtitle = { workspace = true }
 subtitle-ocr-types = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

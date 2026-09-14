@@ -27,8 +27,9 @@ pub use subtitle_ocr_post;
 pub use subtitle_ocr_post as ocr_post;
 
 // ── 批量导出（对齐旧 API 路径） ──
-// 字幕 OCR 产物/管线类型（含 SubtitleSegment 透出）+ 工具函数来自 subtitle-ocr-types；
-// 原子检测框 OcrBoxResult 仍定义在 ocr-types。
+// 字幕 OCR 产物/管线类型 + 工具函数来自 subtitle-ocr-types；原子检测框 OcrBoxResult
+// 仍定义在 ocr-types。注意：SubtitleSegment 的权威定义只在 `subtitle` crate，
+// 本包不转发，下游应直接 `use subtitle::SubtitleSegment`。
 pub use subtitle_ocr_types::*;
 pub use ocr_types::{OcrBoxResult};
 pub use subtitle_ocr_post::{

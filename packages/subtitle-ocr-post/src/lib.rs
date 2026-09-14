@@ -22,12 +22,13 @@ pub use merge_frames::{
     merge_substring_segments, remove_triplet_noise,
 };
 // 原子检测框 OcrBoxResult 仍定义在 ocr-types；其余字幕/OCR 产物与管线类型 +
-// 工具函数（含 SubtitleSegment 透出）统一来自 subtitle-ocr-types。
+// 工具函数统一来自 subtitle-ocr-types。注意：`SubtitleSegment` 的权威定义只在
+// `subtitle` crate，本 crate 不转发，下游应直接 `use subtitle::SubtitleSegment`。
 pub use ocr_types::{OcrBoxResult};
 pub use subtitle_ocr_types::{
-    FrameResult, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame, SubtitleSegment,
-    XStats, YStats, aggregate_boxes, avg_confidence, compute_box_x_stats, compute_box_y_stats,
-    edit_distance, is_substring_of, merge_confidence, normalize, overlap,
+    FrameResult, MergeFramesArgs, MergeFramesResult, OcrSegment, SegmentFrame, XStats, YStats,
+    aggregate_boxes, avg_confidence, compute_box_x_stats, compute_box_y_stats, edit_distance,
+    is_substring_of, merge_confidence, normalize, overlap,
 };
 pub use segment_adjust::{
     OcrSegmentAdjustArgs, OcrSegmentWithAdjust, ocr_segment_adjust,
