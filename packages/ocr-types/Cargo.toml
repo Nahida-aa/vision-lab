@@ -9,8 +9,11 @@ description = "Pure data types + utility functions for OCR pipeline (no heavy de
 [features]
 default = []
 # 为 OCR 结果类型导出 specta::Type（供 LocalDub fnrpc 注册进 bindings）。
-specta-types = ["specta"]
+# SubtitleSegment 的 specta 派生由 subtitle crate 提供，这里一并开启。
+specta-types = ["specta", "subtitle/specta-types"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 specta = { workspace = true, optional = true }
+# 纯字幕领域底座（SubtitleSegment）；OCR 派生段 OcrSegment 内嵌它。
+subtitle = { workspace = true }

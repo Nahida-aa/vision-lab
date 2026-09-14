@@ -1,0 +1,16 @@
+[package]
+name = "subtitle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Pure subtitle domain types (timed text segment) — no OCR deps."
+
+[features]
+default = []
+# 为字幕结果类型导出 specta::Type（供 LocalDub fnrpc 注册进 bindings）。
+specta-types = ["specta"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+specta = { workspace = true, optional = true }

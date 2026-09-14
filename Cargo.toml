@@ -3,6 +3,8 @@ resolver = "3"
 members = [
     "packages/rapidocr-ort", "tools/gen_ui_img", "tools/accel-set", "packages/subtitle-ocr",
     "packages/geometry", "packages/subtitle-finder", "packages/ocr-types", "packages/subtitle-ocr-post",
+    # 纯字幕领域底座（SubtitleSegment，无 OCR 依赖）。
+    "packages/subtitle",
     # 颜色连通域原语 + 布局层（examples/split-panels 演示纯图片 UI 的切分）。
     "packages/color-analysis", "packages/ocr-layout",
     # 界面自动化代理（识别→定位→点击，依赖 ocr-layout / capturer / screen-operator）。
@@ -80,6 +82,7 @@ mimalloc = { version = "0.1", default-features = false }
 # 跨包共享，统一走 workspace，改 path/版本只动这一处。
 rapidocr-ort = { path = "packages/rapidocr-ort" }
 ocr-types = { path = "packages/ocr-types" }
+subtitle = { path = "packages/subtitle" }
 subtitle-ocr-post = { path = "packages/subtitle-ocr-post" }
 subtitle-finder = { path = "packages/subtitle-finder" }
 subtitle-ocr = { path = "packages/subtitle-ocr" }

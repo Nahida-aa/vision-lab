@@ -56,17 +56,10 @@ pub struct FrameResult {
 // Subtitle / segment types
 // ==========================================================
 
-/// 一段字幕：文本与时间跨度。
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta-types", derive(specta::Type))]
-pub struct SubtitleSegment {
-    /// 字幕文本。
-    pub text: String,
-    /// 起始时间（毫秒）。
-    pub start_ms: u32,
-    /// 结束时间（毫秒）。
-    pub end_ms: u32,
-}
+// 纯字幕领域类型（文本 + 时间跨度）已迁到 `subtitle` crate；这里 re-export 以
+// 保持 `ocr_types::SubtitleSegment` 对外不变（LocalDub fnrpc 等既有引用零影响）。
+// OCR 派生字段由下方 `OcrSegment` 通过 `#[serde(flatten)]` 内嵌扩展。
+pub use subtitle::SubtitleSegment;
 
 /// 一条字幕段（extends SubtitleSegment with OCR-specific fields）。
 ///
