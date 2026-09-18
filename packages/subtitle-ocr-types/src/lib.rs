@@ -90,6 +90,19 @@ pub struct MergeFramesArgs {
     /// dedupOverlap 的编辑距离阈值：edit_distance ≤ 此值则合并。默认 `1`。
     #[serde(default = "default_dedup_edit_distance")]
     pub dedup_edit_distance: Option<u32>,
+
+    /// 两帧（仅一个间距、尚无法建立采样节奏基线）时允许的最大间距（ms）：超过则视为
+    /// 同一文本再次出现，断成新段。默认 `6000`（宽松，倾向保留稀疏采样的单句字幕）。
+    #[serde(default = "default_max_gap_two_frames")]
+    pub max_gap_two_frames: Option<u32>,
+    /// 多帧（已建立采样节奏基线）时的相对簇断裂系数 `K`：当前间距 > `K × 典型间距`
+    /// 即判定为换句断段。默认 `4.0`（> 实测句内最大 3266ms / 典型 1000ms ≈ 3.27，留余量）。
+    #[serde(default = "default_split_ratio")]
+    pub split_ratio: Option<f64>,
+    /// 多帧的绝对硬上限（ms）：无论相对如何，间距超过即断段。默认 `5000`（低于两帧
+    /// 宽松值 6000，保证「帧数越多越严格」的不对称）。
+    #[serde(default = "default_max_gap_multi_hard")]
+    pub max_gap_multi_hard: Option<u32>,
 }
 
 fn default_is_merge_substring() -> Option<bool> {
@@ -98,6 +111,15 @@ fn default_is_merge_substring() -> Option<bool> {
 fn default_dedup_edit_distance() -> Option<u32> {
     Some(1)
 }
+fn default_max_gap_two_frames() -> Option<u32> {
+    Some(6000)
+}
+fn default_split_ratio() -> Option<f64> {
+    Some(4.0)
+}
+fn default_max_gap_multi_hard() -> Option<u32> {
+    Some(5000)
+}
 
 impl MergeFramesArgs {
     pub fn is_merge_substring(&self) -> bool {
@@ -105,6 +127,15 @@ impl MergeFramesArgs {
     }
     pub fn dedup_edit_distance(&self) -> u32 {
         self.dedup_edit_distance.unwrap_or(1)
+    }
+    pub fn max_gap_two_frames(&self) -> u32 {
+        self.max_gap_two_frames.unwrap_or(6000)
+    }
+    pub fn split_ratio(&self) -> f64 {
+        self.split_ratio.unwrap_or(4.0)
+    }
+    pub fn max_gap_multi_hard(&self) -> u32 {
+        self.max_gap_multi_hard.unwrap_or(5000)
     }
 }
 

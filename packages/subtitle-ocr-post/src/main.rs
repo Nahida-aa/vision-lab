@@ -176,6 +176,17 @@ struct Cli {
     /// filter-segment 的置信度阈值（默认 0.5，对齐 justfile）。
     #[arg(long, default_value_t = 0.5)]
     threshold: f32,
+
+    /// merge：两帧（无采样节奏基线）时允许的最大间距(ms)，超过视为重复出现断段。
+    /// 默认 6000（宽松，保留稀疏采样单句）。
+    #[arg(long, default_value_t = 6000)]
+    max_gap_two_frames: u32,
+    /// merge：多帧相对簇断裂系数 K（当前间距 > K×典型间距 即断段）。默认 4.0。
+    #[arg(long, default_value_t = 4.0)]
+    split_ratio: f64,
+    /// merge：多帧绝对硬上限(ms)，间距超过即断段（低于两帧宽松值）。默认 5000。
+    #[arg(long, default_value_t = 5000)]
+    max_gap_multi_hard: u32,
 }
 
 /// 仓库根：二进制在 `target/debug/subtitle-ocr-post`，上溯两级到 workspace 根。
@@ -269,7 +280,13 @@ fn main() -> Result<()> {
     }
 
     // ─── 3. merge ───
-    let merged = merge_frames(&filtered.frames, &MergeFramesArgs::default());
+    let merge_args = MergeFramesArgs {
+        max_gap_two_frames: Some(cli.max_gap_two_frames),
+        split_ratio: Some(cli.split_ratio),
+        max_gap_multi_hard: Some(cli.max_gap_multi_hard),
+        ..MergeFramesArgs::default()
+    };
+    let merged = merge_frames(&filtered.frames, &merge_args);
     write_json(&out_dir, "frames_merged.json", &merged)?;
     println!(
         "[3/5] merge: {} 段，写出 frames_merged.json",

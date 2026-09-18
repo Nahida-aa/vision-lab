@@ -31,22 +31,37 @@ fn merge_two_segments(
     }
 }
 
-/// 同一文本相邻帧允许的最大时间间隔（ms）：超过则视为「同一句字幕重复出现」，断成新段。
+/// 断段判据（`base_merge_frames`）：同文本 run 内，**帧数越少越宽松、越多越严格**。
 ///
-/// 背景：`base_merge_frames` 的断段原本只靠两种信号——文本变化、或中间夹空文本帧且间隔
-/// > 1500ms。而上游 `ocr_frames_filter_box` 会把无框的空帧整帧丢掉（见
-/// `box_filter.rs`），喂进来的帧序列里没有空帧，于是相隔十几秒的两句相同文本（如两个
-/// 「啊」）会被粘成一段，段的 end_ms 被拉长到十几秒后。这里补一个纯时间戳兜底。
+/// - **两帧**（仅一个间距、无采样节奏基线）：用 `args.max_gap_two_frames`（默认 6000）
+///   绝对上限，倾向保留稀疏采样的单句。
+/// - **多帧**（已建立基线）：用相对簇断裂 `gap > split_ratio × 典型间距`（系数默认 4.0）
+///   或绝对硬上限 `max_gap_multi_hard`（默认 5000）断段——帧越多节奏越稳，越小的跳跃
+///   也能抓到，故比两帧更严格。
 ///
-/// 阈值取 5000：本仓库实测数据（workfolder/师尊带我炸修真/2）中同一条字幕内相邻帧的
-/// 最大间隔是 3266ms（丢帧导致），而跨段重复文本的间隔是 12667ms。5000 仍落在两者之间
-/// （距句内上限留 ~1700ms 余量，且远小于跨段的 12667，不会把真实重复文本误合并）。
-/// 用例：同文本两帧相隔 4067ms（如「握住它…龙巢中昏睡」9.3s 与 13.4s）本应视为同一句
-/// 被稀疏采样，4000 会误切，放宽到 5000 可在保留断段能力的同时覆盖该 case。
-const MAX_SAME_TEXT_GAP_MS: u32 = 5000;
+/// 背景：上游 `ocr_frames_filter_box` 丢掉无框空帧（`box_filter.rs`），帧流里没有空帧，
+/// 原先靠「夹空帧 >1500ms」断段的信号丢失，纯靠文本变化会把相隔十几秒的两句相同文本
+/// 粘成一长段。上述两模式在保留断段能力的同时，避免把稀疏单句误切。
+///
+/// 三个阈值都物化进 [`MergeFramesArgs`]（带默认值），可被 CLI / fnrpc 调用方覆盖。
+
+/// 对一组 u32 间距取中位数（偶数长取中间两数均值，向下取整到 u32）。
+fn median_u32(v: &[u32]) -> u32 {
+    if v.is_empty() {
+        return 0;
+    }
+    let mut s: Vec<u32> = v.to_vec();
+    s.sort_unstable();
+    let m = s.len() / 2;
+    if s.len() % 2 == 0 {
+        s[m - 1].saturating_add(s[m]) / 2
+    } else {
+        s[m]
+    }
+}
 
 /// 把逐帧 `FrameResult` 合并成带时间轴的字幕段（`base_merge_frames`）。
-pub fn base_merge_frames(frames: &[FrameResult], _args: &MergeFramesArgs) -> Vec<OcrSegment> {
+pub fn base_merge_frames(frames: &[FrameResult], args: &MergeFramesArgs) -> Vec<OcrSegment> {
     let mut segments: Vec<OcrSegment> = Vec::new();
     let mut current_text = String::new();
     let mut current_start: u32 = 0;
@@ -55,6 +70,9 @@ pub fn base_merge_frames(frames: &[FrameResult], _args: &MergeFramesArgs) -> Vec
     let mut gap_start: u32 = 0;
     let mut current_confidences: Vec<f32> = Vec::new();
     let mut current_frames: Vec<SegmentFrame> = Vec::new();
+    // 当前同文本 run 的累积帧数与相邻间距序列（供多帧相对簇断裂做基线）。
+    let mut current_frame_count: u32 = 0;
+    let mut current_gaps: Vec<u32> = Vec::new();
 
     let flush = |current_text: &str,
                      current_start: u32,
@@ -101,19 +119,29 @@ pub fn base_merge_frames(frames: &[FrameResult], _args: &MergeFramesArgs) -> Vec
             );
             current_text.clear();
             current_start = 0;
+            current_end = 0;
             current_box_y = None;
             gap_start = 0;
             current_confidences.clear();
             current_frames = Vec::new();
+            current_frame_count = 0;
+            current_gaps = Vec::new();
         }
-        // 文本相同但间隔过大：不是同一句字幕的延续，而是同一文本再次出现 → 断段。
-        // （该分支本就会先 flush 旧段再开新段，复用即可。）
-        let same_text_too_far = !current_text.is_empty()
-            && (f.timestamp as u32).saturating_sub(current_end) > MAX_SAME_TEXT_GAP_MS;
-        if current_text.is_empty()
-            || same_text_too_far
-            || normalize(&f.text) != normalize(&current_text)
-        {
+        // 相对簇断段：两帧宽松 / 多帧严格（系数 K）。
+        let gap = (f.timestamp as u32).saturating_sub(current_end);
+        let too_far = !current_text.is_empty() && {
+            let n = current_frame_count;
+            if n <= 1 {
+                // 仅一个间距、无采样节奏基线：用宽松绝对上限。
+                gap > args.max_gap_two_frames()
+            } else {
+                // 已建立基线：当前间距 > K×典型间距，或超过硬上限 → 断段。
+                let typical = median_u32(&current_gaps);
+                let rel = (args.split_ratio() * typical as f64) as u32;
+                gap > rel || gap > args.max_gap_multi_hard()
+            }
+        };
+        if current_text.is_empty() || too_far || normalize(&f.text) != normalize(&current_text) {
             if !current_text.is_empty() {
                 flush(
                     &current_text, current_start, current_end, current_box_y,
@@ -130,9 +158,14 @@ pub fn base_merge_frames(frames: &[FrameResult], _args: &MergeFramesArgs) -> Vec
                 text: f.text.clone(),
                 text_confidence: f.text_confidence as f32,
             }];
+            current_frame_count = 1;
+            current_gaps = Vec::new();
         } else {
             current_confidences.push(f.text_confidence as f32);
             current_end = f.timestamp as u32;
+            // 记录本 run 内的相邻间距（供多帧典型间距基线使用）。
+            current_gaps.push(gap);
+            current_frame_count += 1;
             current_frames.push(SegmentFrame {
                 timestamp: f.timestamp as u32,
                 text: f.text.clone(),
@@ -350,8 +383,8 @@ mod tests {
     }
 
     #[test]
-    fn base_merge_keeps_same_text_within_5000() {
-        // MAX_SAME_TEXT_GAP_MS=5000：相隔 4500ms 的同文本两帧视为同一句（稀疏采样），不切。
+    fn base_merge_keeps_same_text_within_two_frame() {
+        // 两帧宽松上限 6000：相隔 4500ms 的同文本两帧视为同一句（稀疏采样），不切。
         // 复现「握住它…龙巢中昏睡」9.3s 与 13.8s 的 case。
         let frames = vec![
             make_frame("握住它你我的躯体尚在龙巢中昏睡", 9366),
@@ -364,10 +397,41 @@ mod tests {
     }
 
     #[test]
-    fn base_merge_splits_same_text_beyond_5000() {
-        // 相隔 >5000ms 的同文本两帧视为重复出现，断成两段。
-        let frames = vec![make_frame("啊", 1000), make_frame("啊", 6500)];
+    fn base_merge_splits_same_text_beyond_two_frame() {
+        // 两帧模式：间距超过放宽上限 6000ms 才断。
+        let frames = vec![make_frame("啊", 1000), make_frame("啊", 7500)];
         let segs = base_merge_frames(&frames, &MergeFramesArgs::default());
+        assert_eq!(segs.len(), 2);
+    }
+
+    #[test]
+    fn base_merge_splits_multi_frame_relative() {
+        // 多帧模式：已建立节奏基线（典型间距 1000ms），当前间距 5000ms 远超
+        // 系数 K=4 的阈值（4×1000=4000），即使未到硬上限 5000 也断成两段。
+        let frames = vec![
+            make_frame("啊", 1000),
+            make_frame("啊", 2000),
+            make_frame("啊", 7000),
+        ];
+        let segs = base_merge_frames(&frames, &MergeFramesArgs::default());
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0].base.start_ms, 1000);
+        assert_eq!(segs[0].base.end_ms, 2000);
+        assert_eq!(segs[1].base.start_ms, 7000);
+    }
+
+    #[test]
+    fn base_merge_args_override_two_frame() {
+        // CLI/fnrpc 可覆盖：把两帧上限压到 4000，原本保留的 4500ms 间距被断开。
+        let args = MergeFramesArgs {
+            max_gap_two_frames: Some(4000),
+            ..MergeFramesArgs::default()
+        };
+        let frames = vec![
+            make_frame("握住它你我的躯体尚在龙巢中昏睡", 9366),
+            make_frame("握住它你我的躯体尚在龙巢中昏睡", 13866),
+        ];
+        let segs = base_merge_frames(&frames, &args);
         assert_eq!(segs.len(), 2);
     }
 
