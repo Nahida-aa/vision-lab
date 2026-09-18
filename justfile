@@ -17,3 +17,13 @@ default:
 #   extra-args 透传给脚本：--prefix <p> / --dry-run
 rename-strip dir extra_args="":
     node scripts/rename_strip_prefix.mjs {{dir}} {{extra_args}}
+
+# ---- 统合后处理管线：一条命令串起 adjust-box → filter-box → merge → adjust-segment → filter-segment ----
+# 用法：just ocr-post [frames] [out] [video_height] [threshold] [stop_at]
+# 输入 frames（逐帧 OCR JSON，subtitle-ocr --out 产出）；画面高度取 frames 的
+# meta.video_height（识别侧写入），老 JSON 没有该字段时用 video_height 显式给。
+# 各中间产物（frames_box_adjust.json / frames_box_filter.json / frames_merged.json /
+# segment_adjust.json / segment_filter.json）都写到 out 目录。--stop-at 可只跑到某一步。
+# 二进制 = subtitle-ocr-post（src/main.rs，默认 bin，无需 --bin）
+subtitle-ocr-post frames="workfolder/师尊带我炸修真/8/sf_ocr/frames.json" out="workfolder/师尊带我炸修真/8/sf_ocr_fix"  threshold="0.45" stop_at="filter-segment":
+    cargo run -p subtitle-ocr-post --release -- --frames {{frames}} --out {{out}} --threshold {{threshold}} --stop-at {{stop_at}}

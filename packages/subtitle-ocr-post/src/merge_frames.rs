@@ -38,9 +38,12 @@ fn merge_two_segments(
 /// `box_filter.rs`），喂进来的帧序列里没有空帧，于是相隔十几秒的两句相同文本（如两个
 /// 「啊」）会被粘成一段，段的 end_ms 被拉长到十几秒后。这里补一个纯时间戳兜底。
 ///
-/// 阈值取 4000：本仓库实测数据（workfolder/师尊带我炸修真/2）中同一条字幕内相邻帧的
-/// 最大间隔是 3266ms（丢帧导致），而跨段重复文本的间隔是 12667ms，4000 落在两者之间。
-const MAX_SAME_TEXT_GAP_MS: u32 = 4000;
+/// 阈值取 5000：本仓库实测数据（workfolder/师尊带我炸修真/2）中同一条字幕内相邻帧的
+/// 最大间隔是 3266ms（丢帧导致），而跨段重复文本的间隔是 12667ms。5000 仍落在两者之间
+/// （距句内上限留 ~1700ms 余量，且远小于跨段的 12667，不会把真实重复文本误合并）。
+/// 用例：同文本两帧相隔 4067ms（如「握住它…龙巢中昏睡」9.3s 与 13.4s）本应视为同一句
+/// 被稀疏采样，4000 会误切，放宽到 5000 可在保留断段能力的同时覆盖该 case。
+const MAX_SAME_TEXT_GAP_MS: u32 = 5000;
 
 /// 把逐帧 `FrameResult` 合并成带时间轴的字幕段（`base_merge_frames`）。
 pub fn base_merge_frames(frames: &[FrameResult], _args: &MergeFramesArgs) -> Vec<OcrSegment> {
@@ -344,6 +347,28 @@ mod tests {
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].base.start_ms, 36100);
         assert_eq!(segs[0].base.end_ms, 39366);
+    }
+
+    #[test]
+    fn base_merge_keeps_same_text_within_5000() {
+        // MAX_SAME_TEXT_GAP_MS=5000：相隔 4500ms 的同文本两帧视为同一句（稀疏采样），不切。
+        // 复现「握住它…龙巢中昏睡」9.3s 与 13.8s 的 case。
+        let frames = vec![
+            make_frame("握住它你我的躯体尚在龙巢中昏睡", 9366),
+            make_frame("握住它你我的躯体尚在龙巢中昏睡", 13866),
+        ];
+        let segs = base_merge_frames(&frames, &MergeFramesArgs::default());
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].base.start_ms, 9366);
+        assert_eq!(segs[0].base.end_ms, 13866);
+    }
+
+    #[test]
+    fn base_merge_splits_same_text_beyond_5000() {
+        // 相隔 >5000ms 的同文本两帧视为重复出现，断成两段。
+        let frames = vec![make_frame("啊", 1000), make_frame("啊", 6500)];
+        let segs = base_merge_frames(&frames, &MergeFramesArgs::default());
+        assert_eq!(segs.len(), 2);
     }
 
     #[test]
