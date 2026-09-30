@@ -2,7 +2,7 @@
 //!
 //! 与具体业务（OCR、颜色分析、操作注入）解耦——谁需要「抓来的 RGBA 图转 RGB」、
 //! 「降采样」「裁剪」这类通用操作，就依赖本 crate，而不是把这些helper散落在
-//! `ocr-agent` / `screen-operator` 里。
+//! `ocr_agent` / `screen_operator` 里。
 //!
 //! 当前提供：
 //! - [`rgba_to_rgb`]：抓图后端（capturer）给的 `RgbaImage` → `RgbImage`（丢 alpha）。

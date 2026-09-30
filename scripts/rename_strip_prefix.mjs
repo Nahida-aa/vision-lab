@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// 批量去掉文件名前缀（默认 `frame_`），便于对接 subtitle-ocr 的 `--dir` 时间命名约定。
+// 批量去掉文件名前缀（默认 `frame_`），便于对接 subtitle_ocr 的 `--dir` 时间命名约定。
 //
-// subtitle-ocr 的 `list_frames` 要求文件名本身即时间数值（`ms` 或 `ms_ms`，可前置 0），
+// subtitle_ocr 的 `list_frames` 要求文件名本身即时间数值（`ms` 或 `ms_ms`，可前置 0），
 // 不允许 `frame_` 这类语义前缀，否则会被当作 bad-name 跳过/报错。本脚本把目录下所有
 // 以指定前缀开头的文件改名、剥掉前缀：
 //

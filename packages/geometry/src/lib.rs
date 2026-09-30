@@ -1,6 +1,6 @@
 //! 纯 Rust 的二维多边形几何库，用 `glam::Vec2` 表示点，**不依赖 OpenCV 绑定**。
 //!
-//! 目标：逐步替代 `rapidocr-ort` det 后处理里对 opencv 的几何调用，降低对
+//! 目标：逐步替代 `rapidocr_ort` det 后处理里对 opencv 的几何调用，降低对
 //! opencv 绑定（本机 OpenCV 5 下 `min_area_rect` 缺失等）的依赖。所有原语都是
 //! 无状态的纯函数，语义对齐 PP-OCR / PaddleOCR 官方 det 后处理：
 //!
@@ -15,7 +15,7 @@
 //! 说明：这些原语在 `min_area_rect` / `box_points` 内部自洽（同一套
 //! width/height/angle 约定），可直接作为 det 几何层的基础。若要替换 det.rs
 //! 现有轴对齐包围盒，需同步改写 `db_postprocess` 并验证基准指标（之前的尝试
-//! 因几何约定混用而回归，见 `rapidocr-ort/src/det.rs` 顶部注释）。
+//! 因几何约定混用而回归，见 `rapidocr_ort/src/det.rs` 顶部注释）。
 //!
 //! 另含 `imgproc` 模块：纯 Rust SIMD 图像像素算子（双线性缩放 / 归一化），
 //! 替代 OpenCV 绑定的像素级处理，进一步摆脱 opencv 依赖。
@@ -409,7 +409,7 @@ mod tests {
     // =====================================================================
     // 与真实 OpenCV `cv::minAreaRect` + `cv::RotatedRect::points` 的逐位对齐测试。
     // ground truth 来自用本机 OpenCV 5（/usr/include/opencv5）编译的 C++ 探针
-    // （tests/bench/subtitle-ocr/tmp/cv_probe.cpp，链接 libopencv_geometry 的
+    // （tests/bench/subtitle_ocr/tmp/cv_probe.cpp，链接 libopencv_geometry 的
     // minAreaRect）跑出的真实角点。这里硬编码为期望值，验证 geometry 的输出
     // 与 OpenCV 是**同一组 4 角点**（顺序可能不同，按集合比较）。
     // =====================================================================

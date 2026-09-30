@@ -1,21 +1,21 @@
 [workspace]
 resolver = "3"
 members = [
-    "packages/rapidocr-ort", "tools/gen_ui_img", "tools/accel-set", "packages/subtitle-ocr",
-    "packages/geometry", "packages/subtitle-finder", "packages/ocr-types", "packages/subtitle-ocr-post",
+    "packages/rapidocr_ort", "tools/gen_ui_img", "tools/accel_set", "packages/subtitle_ocr",
+    "packages/geometry", "packages/subtitle_finder", "packages/ocr_types", "packages/subtitle_ocr_post",
     # 纯字幕领域底座（SubtitleSegment，无 OCR 依赖）。
     "packages/subtitle",
     # 字幕 OCR 产物/管线类型（FrameResult/OcrSegment/OcrFrames*/MergeFrames*/工具函数）。
-    "packages/subtitle-ocr-types",
+    "packages/subtitle_ocr_types",
     # 颜色连通域原语 + 布局层（examples/split-panels 演示纯图片 UI 的切分）。
-    "packages/color-analysis", "packages/ocr-layout",
-    # 界面自动化代理（识别→定位→点击，依赖 ocr-layout / capturer / screen-operator）。
-    "packages/ocr-agent",
-    # 通用图像转换 / 屏幕操作层（ocr-agent 的依赖；用 workspace 继承须在 members 内）。
-    "packages/image_util", "packages/screen-operator",
-    # 基准测试驱动（独立 cargo 包，见 tests/bench/subtitle-ocr）。
+    "packages/color_analysis", "packages/ocr_layout",
+    # 界面自动化代理（识别→定位→点击，依赖 ocr_layout / capturer / screen_operator）。
+    "packages/ocr_agent",
+    # 通用图像转换 / 屏幕操作层（ocr_agent 的依赖；用 workspace 继承须在 members 内）。
+    "packages/image_util", "packages/screen_operator",
+    # 基准测试驱动（独立 cargo 包，见 tests/bench/subtitle_ocr）。
     # 不属于常规构建目标，故不放进 default-members。
-    "tests/bench/subtitle-ocr",
+    "tests/bench/subtitle_ocr",
 ]
 
 # default-members：当你只敲 `cargo build` / `cargo run`（不带 -p）时，
@@ -26,7 +26,7 @@ members = [
 #   - bench 是可选基准工具，不应拖累默认构建。
 # 想全量构建时，用 `cargo build --workspace`。
 default-members = [
-    "tools/gen_ui_img", "tools/accel-set", "packages/subtitle-ocr",
+    "tools/gen_ui_img", "tools/accel_set", "packages/subtitle_ocr",
 ]
 
 # [workspace.package] 里写的字段会被子包用 `version.workspace = true` 继承。
@@ -64,7 +64,7 @@ indicatif = "0.17"
 ndarray = "0.17"
 rust-embed = { version = "8.11", features = ["include-exclude"] }
 # 通用图像转换工具（rgba→rgb 等），与业务解耦。
-image-util = { path = "packages/image_util" }
+image_util = { path = "packages/image_util" }
 image = "0.25"
 # clang-runtime: 强制绑定生成走子进程而非线程, 避免 clang-sys 因树内其它 crate
 # 开启 runtime 导致多线程 load libclang 时 panic (opencv-rust TROUBLESHOOTING #8)。
@@ -76,21 +76,21 @@ glam = "0.33.2"
 # 纯 Rust 高性能线性代数（faer）。作为通用底座，替代/降低对 opencv 在矩阵运算
 # （如透视变换 getPerspectiveTransform）上的依赖。SIMD/多线程优化。
 faer = "0.24.4"
-# 视频解码（subtitle-finder 逐帧 30fps 用）。
+# 视频解码（subtitle_finder 逐帧 30fps 用）。
 ffmpeg-next = "9.0.0"
-# 高并发 malloc（subtitle-finder 多 worker transform 大量 1MB 级分配）。
+# 高并发 malloc（subtitle_finder 多 worker transform 大量 1MB 级分配）。
 mimalloc = { version = "0.1", default-features = false }
 # PP-OCR det/rec/cls 引擎（onnxruntime 推理 + DB 后处理）。
 # 跨包共享，统一走 workspace，改 path/版本只动这一处。
-rapidocr-ort = { path = "packages/rapidocr-ort" }
-ocr-types = { path = "packages/ocr-types" }
+rapidocr_ort = { path = "packages/rapidocr_ort" }
+ocr_types = { path = "packages/ocr_types" }
 subtitle = { path = "packages/subtitle" }
-subtitle-ocr-types = { path = "packages/subtitle-ocr-types" }
-subtitle-ocr-post = { path = "packages/subtitle-ocr-post" }
-subtitle-finder = { path = "packages/subtitle-finder" }
-subtitle-ocr = { path = "packages/subtitle-ocr" }
+subtitle_ocr_types = { path = "packages/subtitle_ocr_types" }
+subtitle_ocr_post = { path = "packages/subtitle_ocr_post" }
+subtitle_finder = { path = "packages/subtitle_finder" }
+subtitle_ocr = { path = "packages/subtitle_ocr" }
 # 纯 Rust 二维多边形几何（凸包 / 旋转卡尺最小外接矩形 / 框角点 / 多边形偏移）。
-# 供 rapidocr-ort 的 det 后处理复刻 cpp 的 minAreaRect + unclip 几何。
+# 供 rapidocr_ort 的 det 后处理复刻 cpp 的 minAreaRect + unclip 几何。
 geometry = { path = "packages/geometry" }
 # 屏幕抓取（ScreenCast 窗口流 / 全屏）。已随仓库结构迁移到 packages/ 下，
 # 跨包共享，统一走 workspace。
@@ -121,7 +121,7 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "d88f6821
 gpui_wgpu = { git = "https://github.com/zed-industries/zed", rev = "d88f68217b370f7a66d0c4b4971db31c0dff6df7", version = "=0.1.0" }
 gpui_util = { git = "https://github.com/zed-industries/zed", rev = "d88f68217b370f7a66d0c4b4971db31c0dff6df7", version = "=0.1.0" }
 
-# 跨 crate 内联 `#[target_feature]` 函数（如 subtitle-finder 调 geometry 的 Sobel AVX-512）。
+# 跨 crate 内联 `#[target_feature]` 函数（如 subtitle_finder 调 geometry 的 Sobel AVX-512）。
 # 默认 release 下 `#[target_feature]` 函数跨 crate 不内联，导致调用开销；thin LTO +
 # codegen-units=1 让链接时跨 crate 内联，性能接近同 crate（实测 sobel_n 0.15→0.11ms）。
 # 注意：显著增加编译时间。

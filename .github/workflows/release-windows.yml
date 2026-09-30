@@ -1,6 +1,6 @@
 name: release-windows
 
-# 手动触发: 构建 subtitle-finder / subtitle-ocr 的 Windows (x86_64-pc-windows-msvc)
+# 手动触发: 构建 subtitle_finder / subtitle_ocr 的 Windows (x86_64-pc-windows-msvc)
 # 资产并上传到 vision-lab 对应 GitHub Release。
 #
 # 资产形态: zip (exe + 运行时 dll)。动态链接官方 OpenCV 5.0.0 prebuilt + vcpkg ffmpeg,
@@ -21,19 +21,19 @@ on:
   workflow_dispatch:
     inputs:
       upload_ocr:
-        description: "构建并上传 subtitle-ocr 主 bin 到 tag_ocr"
+        description: "构建并上传 subtitle_ocr 主 bin 到 tag_ocr"
         type: boolean
         default: true
       upload_finder:
-        description: "构建并上传 subtitle-finder 到 tag_finder"
+        description: "构建并上传 subtitle_finder 到 tag_finder"
         type: boolean
         default: true
       tag_ocr:
-        description: "subtitle-ocr 上传目标 tag（默认 subtitle-ocr-v0.1.1）"
+        description: "subtitle_ocr 上传目标 tag（默认 subtitle-ocr-v0.1.1）"
         type: string
         default: "subtitle-ocr-v0.1.1"
       tag_finder:
-        description: "subtitle-finder 上传目标 tag（默认 subtitle-finder-v0.1.0）"
+        description: "subtitle_finder 上传目标 tag（默认 subtitle-finder-v0.1.0）"
         type: string
         default: "subtitle-finder-v0.1.0"
 
@@ -127,12 +127,12 @@ jobs:
       - name: build release bins
         shell: pwsh
         run: |
-          # 注意：ocr-post / merge-frames 等后处理 CLI 已迁到 subtitle-ocr-post
+          # 注意：ocr-post / merge-frames 等后处理 CLI 已迁到 subtitle_ocr_post
           # （见 release-post-windows.yml，纯 Rust 无需 opencv/ffmpeg），本 workflow
           # 只负责重型推理 bin。
-          cargo build --release -p subtitle-ocr --bin subtitle-ocr -p subtitle-finder --bin subtitle-finder
+          cargo build --release -p subtitle_ocr --bin subtitle_ocr -p subtitle_finder --bin subtitle_finder
           if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-          Get-ChildItem target\release\*.exe | Where-Object { $_.Name -match 'subtitle-ocr|ocr-post|subtitle-finder' } | Select-Object Name, Length
+          Get-ChildItem target\release\*.exe | Where-Object { $_.Name -match 'subtitle_ocr|ocr-post|subtitle_finder' } | Select-Object Name, Length
 
       - name: smoke test (dll 完整性)
         shell: pwsh
@@ -142,9 +142,9 @@ jobs:
           # opencv/ffmpeg dll 不在 exe 同目录, 需经 PATH 提供 (与 zip 平铺布局等效)
           $env:PATH = "C:\opencv5\opencv\build\x64\vc16\bin;$env:VCPKG_ROOT\installed\x64-windows\bin;$env:PATH"
           # ocr-post 等后处理 CLI 不在本 workflow 产物里（见 release-post-windows.yml）
-          $exes = @("subtitle-ocr", "subtitle-finder") | Where-Object {
-            ($_ -eq "subtitle-finder" -and "${{ github.event.inputs.upload_finder }}" -ne "false") -or
-            ($_ -eq "subtitle-ocr" -and "${{ github.event.inputs.upload_ocr }}" -ne "false")
+          $exes = @("subtitle_ocr", "subtitle_finder") | Where-Object {
+            ($_ -eq "subtitle_finder" -and "${{ github.event.inputs.upload_finder }}" -ne "false") -or
+            ($_ -eq "subtitle_ocr" -and "${{ github.event.inputs.upload_ocr }}" -ne "false")
           }
           foreach ($e in $exes) {
             & ".\target\release\$e.exe" --help *> $null
@@ -158,8 +158,8 @@ jobs:
           $outDir = "$env:RUNNER_TEMP\out"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           $bins = @()
-          if ("${{ github.event.inputs.upload_ocr }}" -ne "false") { $bins += "subtitle-ocr" }
-          if ("${{ github.event.inputs.upload_finder }}" -ne "false") { $bins += "subtitle-finder" }
+          if ("${{ github.event.inputs.upload_ocr }}" -ne "false") { $bins += "subtitle_ocr" }
+          if ("${{ github.event.inputs.upload_finder }}" -ne "false") { $bins += "subtitle_finder" }
           # opencv prebuilt + vcpkg ffmpeg 的全部 dll 平铺进每个 zip, 与 exe 同目录
           # (opencv_world500 + videoio ffmpeg/msmf 插件 + ffmpeg 库)
           $opencvBin = "C:\opencv5\opencv\build\x64\vc16\bin"
@@ -184,11 +184,11 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ github.event.inputs.upload_ocr }}" -ne "false") {
-            gh release upload "${{ github.event.inputs.tag_ocr }}" "$env:OUT_DIR\subtitle-ocr-x86_64-pc-windows-msvc.zip" --clobber
+            gh release upload "${{ github.event.inputs.tag_ocr }}" "$env:OUT_DIR\subtitle_ocr-x86_64-pc-windows-msvc.zip" --clobber
             if ($LASTEXITCODE -ne 0) { throw "upload ocr failed" }
           }
           if ("${{ github.event.inputs.upload_finder }}" -ne "false") {
-            gh release upload "${{ github.event.inputs.tag_finder }}" "$env:OUT_DIR\subtitle-finder-x86_64-pc-windows-msvc.zip" --clobber
+            gh release upload "${{ github.event.inputs.tag_finder }}" "$env:OUT_DIR\subtitle_finder-x86_64-pc-windows-msvc.zip" --clobber
             if ($LASTEXITCODE -ne 0) { throw "upload finder failed" }
           }
 

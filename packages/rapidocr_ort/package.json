@@ -1,0 +1,22 @@
+{
+  "name": "rapidocr_ort",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于 ONNX Runtime 的 PP-OCR 文字识别（检测+识别），支持 v3 / v6-tiny / v6-medium 运行时切换",
+  "scripts": {
+    "build": "cargo build -p rapidocr_ort",
+    "build:release": "cargo build -p rapidocr_ort --release",
+    "test": "cargo test -p rapidocr_ort",
+    "test:watch": "cargo test -p rapidocr_ort -- --watch",
+    "run": "cargo run -p rapidocr_ort --",
+    "ocr": "cargo run -p rapidocr_ort -- --model v3",
+    "ocr:v3": "cargo run -p rapidocr_ort -- --model v3",
+    "ocr:v6-tiny": "cargo run -p rapidocr_ort -- --model v6-tiny",
+    "ocr:v6-medium": "cargo run -p rapidocr_ort -- --model v6-medium",
+    "ocr:stable1": "cargo run -p rapidocr_ort -- --model v3 tests/fixtures/stable1.png",
+    "ocr:big1": "cargo run -p rapidocr_ort -- --model v3 tests/fixtures/big1.png",
+    "ocr:nat1": "cargo run -p rapidocr_ort -- --model v3 tests/fixtures/nat1.png",
+    "ocr:zh1": "cargo run -p rapidocr_ort -- --model v3 tests/fixtures/zh1.png",
+    "ocr:mix1": "cargo run -p rapidocr_ort -- --model v3 tests/fixtures/mix1.png"
+  }
+}

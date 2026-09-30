@@ -1,0 +1,53 @@
+# subtitle_finder：吃视频 → 输出字幕关键帧 + 时间轴（复刻 VideoSubFinder 筛选管线）。
+# 用法（在 packages/subtitle_finder/ 下）：
+#   just                       # 默认 = 显示任务列表
+#   just build                 # release 编译
+#   just run <video> [out]     # 跑视频，输出关键帧（out 可选，默认包内 out/）
+#   just run-nosave <video> [out] # 只写 timeline.txt（--output timeline，纯计时）
+#   just run-frames <video> [out] # 仅原始关键帧 PNG（--output frames）
+#   just profile <video> [out] # 带分阶段耗时剖析跑
+#   just test                  # 跑单测
+#   just out-clean             # 清空 out/（关键帧 + mask + json）
+# 参数用位置传：just run /tmp/a.mp4 /tmp/out_dir （video, out 按序；out 省略则默认 out/）
+#
+# 输出（--out 目录下）：frames/{start}_{end}.png（与 subtitle_ocr --dir 的 ms_ms
+#       约定一致，可直接喂下游）+ mask/{start}_{end}.png（去背景掩码，分目录）
+#       + timeline.txt + keyframes.json
+#
+# 跨包流程例子（subtitle_finder 提关键帧 → subtitle_ocr 识别 → 带时间轴字幕）见
+# tests/bench/subtitle_ocr（cargo run -p bench_subtitle_ocr --bin sf_ocr -- <video>）。
+
+# ---- 默认任务（`just` 无参即显示列表） ----
+default:
+    @just --list
+
+# ---- 编译（release，含 LTO） ----
+build:
+    cargo build -p subtitle_finder --release
+
+# ---- 跑一段视频（输出关键帧 + 时间轴到 out/ 或 --out 指定目录） ----
+# 用法：just run                    # 默认视频 + 默认 out/
+#       just run <video>            # 指定视频
+#       just run <video> <out_dir>  # 指定视频 + 输出目录（位置参数）
+run video="tmp/大/13/video_source.mp4" out="tmp/大/13/sf_ocr_pre":
+    cargo run -p subtitle_finder --release -- {{video}} {{ if out != "" { "--out " + out } else { "" } }}
+
+# ---- 只跑算法、只写 timeline.txt（--output timeline，纯计时用） ----
+run-nosave video="/tmp/clip5s.mp4" out="":
+    cargo run -p subtitle_finder --release -- --output timeline {{video}} {{ if out != "" { "--out " + out } else { "" } }}
+
+# ---- 仅原始关键帧 PNG（--output frames，不写掩码/json/timeline） ----
+run-frames video="workfolder/错位未婚妻/第03集/video_source.mp4" out="workfolder/错位未婚妻/第03集/sf_ocr_pre":
+    cargo run -p subtitle_finder --release -- --output frames {{video}} {{ if out != "" { "--out " + out } else { "" } }}
+
+# ---- 带分阶段耗时剖析跑 ----
+profile video="/tmp/clip5s.mp4" out="":
+    cargo run -p subtitle_finder --release -- --profile {{video}} {{ if out != "" { "--out " + out } else { "" } }}
+
+# ---- 单测 ----
+test:
+    cargo test -p subtitle_finder
+
+# ---- 清空 out/（关键帧产物：frames/、mask/、timeline、json） ----
+out-clean:
+    @rm -rf out/frames out/mask out/timeline.txt out/keyframes.json

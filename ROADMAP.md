@@ -7,15 +7,15 @@
 1. **视频字幕识别**（核心方向）：从视频帧抽取字幕文字。由通用 OCR 能力孵化出的
    垂直场景——字幕水平、底部、高对比的分布契合 PP-OCR，已沉淀专属后处理与时间轴
    合并链路。
-   - 实现变体：`packages/subtitle-ocr-cpp`（C++/ORT 直连，已实现）、
-     `packages/subtitle-ocr-py`（Python/rapidocr，已实现）、
-     `packages/subtitle-ocr`（Rust，已实现 OCR + 后处理 CLI 链）。
-   - 横比基准：`tests/bench/subtitle-ocr`（`bin/test.rs` 正确性 + `bin/bench.rs` 性能占位）。
-   - 参考素材：`tests/bench/subtitle-ocr/ref/`（video_source.mp4 + ocr_manual.json 人工标注）。
+   - 实现变体：`packages/subtitle_ocr_cpp`（C++/ORT 直连，已实现）、
+     `packages/subtitle_ocr_py`（Python/rapidocr，已实现）、
+     `packages/subtitle_ocr`（Rust，已实现 OCR + 后处理 CLI 链）。
+   - 横比基准：`tests/bench/subtitle_ocr`（`bin/test.rs` 正确性 + `bin/bench.rs` 性能占位）。
+   - 参考素材：`tests/bench/subtitle_ocr/ref/`（video_source.mp4 + ocr_manual.json 人工标注）。
 2. **GUI 自动化测试**：可复现 fixture + 识别/操作验证。
    - `tools/gen_ui_img`（gpui 真实渲染 → capturer 抓图）→ `tests/fixtures/ui_*.png`。
 3. **GUI 智能操作**：「看屏幕 → 理解 → 操作」闭环。
-   - 组合：`crates/capturer`（抓图）+ `crates/rapidocr-ort`（文字识别）+ `crates/screen-operator`（点击/输入回灌）。
+   - 组合：`crates/capturer`（抓图）+ `crates/rapidocr_ort`（文字识别）+ `crates/screen_operator`（点击/输入回灌）。
 
 三者共享底层 OCR 引擎与抓图/注入设施（故同仓），但**视频字幕识别的基准只服务字幕识别，
 不可误用作 GUI 自动化测试 / GUI 智能操作的验收**。
@@ -23,9 +23,9 @@
 ```mermaid
 graph TD
     subgraph base["共用底层（三方向共享）"]
-        OCR["rapidocr-ort<br/>PP-OCR 识别引擎"]
+        OCR["rapidocr_ort<br/>PP-OCR 识别引擎"]
         CAP["capturer<br/>抓图基础设施"]
-        INJ["输入注入<br/>screen-operator 后端"]
+        INJ["输入注入<br/>screen_operator 后端"]
     end
 
     OCR --> S1
@@ -33,20 +33,20 @@ graph TD
     CAP --> S3
     INJ --> S3
 
-    S1["① 视频字幕识别（核心方向）<br/>subtitle-ocr + bench/subtitle-ocr"]
+    S1["① 视频字幕识别（核心方向）<br/>subtitle_ocr + bench/subtitle_ocr"]
     S2["② GUI 自动化测试<br/>gen_ui_img → fixtures"]
-    S3["③ GUI 智能操作<br/>capturer + screen-operator 闭环"]
+    S3["③ GUI 智能操作<br/>capturer + screen_operator 闭环"]
 ```
 
 ## 当前状态
 
-### ✅ rapidocr-ort（文字识别，可用）
+### ✅ rapidocr_ort（文字识别，可用）
 
 - `OcrEngine` 支持 v3 / v6-tiny / v6-medium，**运行时 `--model` 切换**（非条件编译）。
 - 检测：DB 概率图 + 二值化 + 连通域 + 框扩张（PP-OCR det 概率图只激活文字行
   中间带，需外扩才能包住完整字形）。
 - 识别：CRNN/CTC 贪婪解码，时间轴自动判定 `[1,T,C]` / `[1,C,T]`。
-- 二进制 `rapidocr-ort` 对单图输出 JSON（`text` / `score` / `bbox` / `center`）。
+- 二进制 `rapidocr_ort` 对单图输出 JSON（`text` / `score` / `bbox` / `center`）。
 - `tests/`：可复现 fixture + `v3_detects_text_on_fixtures` 集成测试。
 - `tools/gen_fixtures.py`：用 Noto Sans CJK 生成文字图片（支持中文，避免 tofu）。
 
@@ -88,21 +88,21 @@ vision-lab/
 ├── ROADMAP.md              # 本文件
 ├── data/models/rapidocr/        # 权重（gitignore，152M）
 ├── crates/
-│   ├── rapidocr-ort/       # 检测+识别 库 & 二进制（目标 2/3 共用的识别引擎）
+│   ├── rapidocr_ort/       # 检测+识别 库 & 二进制（目标 2/3 共用的识别引擎）
 │   ├── capturer/           # 自研跨 compositor 抓图基础设施（Capturer trait + portal 后端）
-│   ├── screen-operator/    # 操作回灌层（目标 2）
+│   ├── screen_operator/    # 操作回灌层（目标 2）
 │   ├── util/               # 资源加载（rust-embed 辅助）
 │   └── settings/           # 配置（rust-embed 资源）
 ├── packages/
-│   ├── subtitle-ocr-cpp/   # 目标 1：字幕识别 C++ 实现（ocr.test.ts + test.justfile）
-│   ├── subtitle-ocr-py/    # 目标 1：字幕识别 Python 实现
-│   └── subtitle-ocr/       # 核心方向：字幕识别 Rust 实现（已实现 OCR + 后处理 CLI 链）
+│   ├── subtitle_ocr_cpp/   # 目标 1：字幕识别 C++ 实现（ocr.test.ts + test.justfile）
+│   ├── subtitle_ocr_py/    # 目标 1：字幕识别 Python 实现
+│   └── subtitle_ocr/       # 核心方向：字幕识别 Rust 实现（已实现 OCR + 后处理 CLI 链）
 ├── tools/
 │   ├── gen_fixtures.py     # 文字图片生成器（PIL/中文，确定性单元 fixture）
 │   └── gen_ui_img/         # gpui 真实渲染 → capturer 抓图 → 存 tests/fixtures/ui_*.png（目标 3）
 ├── tests/
 │   ├── fixtures/           # 测试图（stable1/big1/nat1/zh1/mix1 …；ui_* 为 gpui 生成）
 │   ├── .test-frames/       # 正确性测试用的 3 帧（目标 1 跨实现测试源）
-│   └── bench/subtitle-ocr/ # 目标 1 横比基准（Cargo 包 bench-subtitle-ocr）
+│   └── bench/subtitle_ocr/ # 目标 1 横比基准（Cargo 包 bench_subtitle_ocr）
 └── assets/                 # 嵌入资源（settings/keymaps）
 ```

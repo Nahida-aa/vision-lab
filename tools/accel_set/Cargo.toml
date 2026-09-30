@@ -1,0 +1,11 @@
+[package]
+name = "accel_set"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+input = "0.10.0"
+anyhow = "1.0"
+libc = "0.2"

@@ -1,4 +1,4 @@
-# ---- 批量去掉文件名前缀（默认 frame_），对接 subtitle-ocr --dir 命名约定 ----
+# ---- 批量去掉文件名前缀（默认 frame_），对接 subtitle_ocr --dir 命名约定 ----
 # 用法：just rename-strip <dir> [extra-args...]
 #   extra-args 透传给脚本：--prefix <p> / --dry-run
 rename_strip dir="../tmp/4/asr_frames" extra_args="":

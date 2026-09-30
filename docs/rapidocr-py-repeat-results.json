@@ -6,7 +6,7 @@
     "subtitle_only": true,
     "frames_dir": "/home/aa/repos/ai_ls/vox-lab/packages/benchmark/ocr/results/frames-pre-2fps",
     "max_frames": 0,
-    "out": "packages/subtitle-ocr/docs/rapidocr-py-repeat-results.json"
+    "out": "packages/subtitle_ocr/docs/rapidocr-py-repeat-results.json"
   },
   "frames_dir": "/home/aa/repos/ai_ls/vox-lab/packages/benchmark/ocr/results/frames-pre-2fps",
   "frames_total": 341,

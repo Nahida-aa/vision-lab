@@ -1,0 +1,56 @@
+# subtitle_ocr：纯感知 OCR 工具（对标 cpp 的 ocr_pipeline.cpp）。
+# 用法（在 packages/subtitle_ocr/ 下）：
+#   just                       # 默认 = 显示任务列表
+#   just build                 # release 编译
+#   just test                  # 跑单测
+#   just run <image>           # 单图识别（输出逐帧 JSON 数组到 stdout）
+#   just run-dir <dir>         # 批量识别（文件名须为 ms / ms_ms 时间格式）
+#   just run-out <image> <out> # 单图识别并写出 OcrFramesResult 到指定文件
+#   just ocr-post [frames] [out] [video_height]  # 统合后处理管线：一条命令跑完全部 5 步
+#   just doc                   # 构建文档（带私有项，便于看内部模块）
+#
+# 输出：stdout 为与 cpp 同形状的 JSON 数组（text/confidence/boxes/timestamp）；
+#       --out 额外落地 OcrFramesResult（{frames, meta}），文件名由调用方指定
+#       （如 asr_ocr_frames.json / sf_ocr_frames.json），对齐 LocalDub。
+
+# ---- 默认任务（`just` 无参即显示列表） ----
+default:
+    @just --list
+
+# ---- 编译（release，含 LTO） ----
+build:
+    cargo build -p subtitle_ocr --release
+
+# ---- 单测 ----
+test:
+    cargo test -p subtitle_ocr
+
+# ---- 单图识别（位置传图，输出 JSON 数组到 stdout） ----
+# 用法：just run <image>
+run image="tmp/both_fullscreen_frame1.png":
+    cargo run -p subtitle_ocr --release -- {{image}}
+
+# ---- 批量识别（--dir，文件名须为 ms / ms_ms 时间格式） ----
+# 用法：just run-dir <dir>
+run-dir dir="tmp/大/45/sf_ocr_pre/frames" out="tmp/大/45/sf_ocr/frames.json":
+    cargo run -p subtitle_ocr --release -- --dir {{dir}} --out {{out}} --subtitle-only
+
+# ---- 单图识别并写出 OcrFramesResult 到调用方指定文件 ----
+# 用法：just run-out <image> <out>
+run_out image="tmp/both_fullscreen_frame1.png" out="tmp/ocr_frames.json":
+    cargo run -p subtitle_ocr --release -- {{image}} --out {{out}}
+
+# ---- 构建文档（含私有项） ----
+doc:
+    cargo doc -p subtitle_ocr --no-deps --document-private-items
+
+
+# ---- 统合后处理管线：一条命令串起 adjust-box → filter-box → merge → adjust-segment → filter-segment ----
+# 用法：just ocr-post [frames] [out] [video_height] [threshold] [stop_at]
+# 输入 frames（逐帧 OCR JSON，subtitle_ocr --out 产出）；画面高度取 frames 的
+# meta.video_height（识别侧写入），老 JSON 没有该字段时用 video_height 显式给。
+# 各中间产物（frames_box_adjust.json / frames_box_filter.json / frames_merged.json /
+# segment_adjust.json / segment_filter.json）都写到 out 目录。--stop-at 可只跑到某一步。
+# 二进制 = subtitle_ocr_post（src/main.rs，默认 bin，无需 --bin）。
+ocr-post frames="workfolder/师尊带我炸修真/2/sf_ocr/frames.json" out="workfolder/师尊带我炸修真/2/sf_ocr_fix" video_height="" threshold="0.45" stop_at="filter-segment":
+    cargo run -p subtitle_ocr_post --release -- --frames {{frames}} --out {{out}} {{ if video_height != "" { "--video-height " + video_height } else { "" } }} --threshold {{threshold}} --stop-at {{stop_at}}

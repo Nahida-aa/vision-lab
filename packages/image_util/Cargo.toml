@@ -1,5 +1,5 @@
 [package]
-name = "image-util"
+name = "image_util"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

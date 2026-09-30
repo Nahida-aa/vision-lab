@@ -9,7 +9,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
 
 [[package]]
-name = "accel-set"
+name = "accel_set"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -646,16 +646,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
-name = "bench-subtitle-ocr"
+name = "bench_subtitle_ocr"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "image",
  "ndarray",
- "rapidocr-ort",
+ "rapidocr_ort",
  "serde_json",
- "subtitle-finder",
- "subtitle-ocr",
+ "subtitle_finder",
+ "subtitle_ocr",
 ]
 
 [[package]]
@@ -1168,7 +1168,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "color-analysis"
+name = "color_analysis"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3339,14 +3339,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "image-util"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "image",
-]
-
-[[package]]
 name = "image-webp"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3354,6 +3346,14 @@ checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
 dependencies = [
  "byteorder-lite",
  "quick-error",
+]
+
+[[package]]
+name = "image_util"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "image",
 ]
 
 [[package]]
@@ -4656,7 +4656,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ocr-agent"
+name = "ocr_agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4664,32 +4664,32 @@ dependencies = [
  "capturer",
  "glam",
  "image",
- "image-util",
- "ocr-layout",
- "rapidocr-ort",
- "screen-operator",
+ "image_util",
+ "ocr_layout",
+ "rapidocr_ort",
+ "screen_operator",
  "serde_json",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
-name = "ocr-layout"
+name = "ocr_layout"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "color-analysis",
+ "color_analysis",
  "image",
- "image-util",
+ "image_util",
  "ndarray",
- "rapidocr-ort",
+ "rapidocr_ort",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "ocr-types"
+name = "ocr_types"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -5584,7 +5584,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "973443cf09a9c8656b574a866ab68dfa19f0867d0340648c7d2f6a71b8a8ea68"
 
 [[package]]
-name = "rapidocr-ort"
+name = "rapidocr_ort"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -5594,7 +5594,7 @@ dependencies = [
  "glam",
  "image",
  "ndarray",
- "ocr-types",
+ "ocr_types",
  "opencv",
  "ort",
  "serde",
@@ -6066,7 +6066,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "screen-operator"
+name = "screen_operator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -6585,7 +6585,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "subtitle-finder"
+name = "subtitle_finder"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -6603,7 +6603,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "subtitle-ocr"
+name = "subtitle_ocr"
 version = "0.1.1"
 dependencies = [
  "anyhow",
@@ -6612,37 +6612,37 @@ dependencies = [
  "image",
  "indicatif",
  "ndarray",
- "ocr-types",
- "rapidocr-ort",
+ "ocr_types",
+ "rapidocr_ort",
  "serde",
  "serde_json",
- "subtitle-ocr-post",
- "subtitle-ocr-types",
+ "subtitle_ocr_post",
+ "subtitle_ocr_types",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
-name = "subtitle-ocr-post"
+name = "subtitle_ocr_post"
 version = "0.1.3"
 dependencies = [
  "anyhow",
  "clap",
- "ocr-types",
+ "ocr_types",
  "serde",
  "serde_json",
  "specta",
  "subtitle",
- "subtitle-ocr-types",
+ "subtitle_ocr_types",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
-name = "subtitle-ocr-types"
+name = "subtitle_ocr_types"
 version = "0.1.0"
 dependencies = [
- "ocr-types",
+ "ocr_types",
  "serde",
  "specta",
  "subtitle",

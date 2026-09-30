@@ -1,7 +1,7 @@
 //! geometry 内部 sobel_m_edge 性能基准（release，同 crate 内联）。
 //!
 //! 目的：测 `sobel_m_edge` **在 geometry crate 内**的速度。因为 `#[target_feature]`
-//! 函数不能跨 crate 内联（Rust issue #145574），跨 crate（subtitle-finder 调 geometry）
+//! 函数不能跨 crate 内联（Rust issue #145574），跨 crate（subtitle_finder 调 geometry）
 //! 会丢失内联、比 crate 内慢 ~1.8×。本 bin 在 geometry 内部调用，能反映"内联后"的
 //! 真实最快速度，用于对比跨 crate 的 perfbench 数字。
 //!

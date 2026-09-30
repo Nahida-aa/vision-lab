@@ -2,10 +2,10 @@
 //!
 //! 本 crate 是 OCR 管线的下游领域底座：只描述「一段带时间跨度的文本」这种
 //! 与识别方式无关的概念。OCR 派生字段（置信度 / 框几何 / 源帧）由
-//! `subtitle-ocr-types` 的 [`subtitle_ocr_types::OcrSegment`] 通过
+//! `subtitle_ocr_types` 的 [`subtitle_ocr_types::OcrSegment`] 通过
 //! `#[serde(flatten)]` 内嵌扩展。
 //!
-//! 分层：`subtitle`（纯字幕领域）→ `ocr-types`（OCR 管线 IO）→ `subtitle-ocr-post`（算法）。
+//! 分层：`subtitle`（纯字幕领域）→ `ocr_types`（OCR 管线 IO）→ `subtitle_ocr_post`（算法）。
 
 use serde::{Deserialize, Serialize};
 

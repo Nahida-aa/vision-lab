@@ -1,6 +1,6 @@
-# subtitle-finder 与 C++ VideoSubFinder 的对比调查结论
+# subtitle_finder 与 C++ VideoSubFinder 的对比调查结论
 
-> 目的：记录 Rust `subtitle-finder`（packages/subtitle-finder）与 C++ VideoSubFinder
+> 目的：记录 Rust `subtitle_finder`（packages/subtitle_finder）与 C++ VideoSubFinder
 > 输出差异（Rust 7 段 vs C++ 4 段）的根因调查结论，避免以后重复走弯路。
 
 ## 已验证的事实（决定性实验）
@@ -55,7 +55,7 @@
      修复：只交集 has_text=1 的帧 → 段3 延伸到 fn=104 (3499)。
   2. 状态机外层 `fn_ >= count` 的 break 直接退出，没保存进行中的末尾段 → 段4 丢失。
      修复：EOF break 时保存进行中的段（ef/et 定为最后一帧）。
-- **验证**：用 `subtitle-ocr` OCR 确认 fn=104 有字幕（"这可是剑仙啊"）、fn=105 空；
+- **验证**：用 `subtitle_ocr` OCR 确认 fn=104 有字幕（"这可是剑仙啊"）、fn=105 空；
   C++ ISA 图段3="这可是剑仙响"、段4="不行我得出手了"。两边 has_text 判定一致（Rust/C++ TF 一致）。
 - **结果**：Rust `132-932, 932-2265, 2266-3499, 3700-5033`，与 C++ `133-932, 933-2265,
   2266-3499, 3700-5032` **完全一致**（差 ≤1ms 为解码器帧时序）。
@@ -77,9 +77,9 @@
 - 用 ffmpeg CLI 转 BGR 作为 OpenCV 的可靠参照（默认 bt709 与 OpenCV 100% 一致）。
 - 关键结论已反复验证：用相同 BGR 喂两边才能可靠对比（cli 分支 FastSearchSubtitles 有帧同步 bug）。
 
-## ⚠️ 新发现（2026-08-06）：subtitle-finder 对长视频内存爆炸（OOM）
+## ⚠️ 新发现（2026-08-06）：subtitle_finder 对长视频内存爆炸（OOM）
 - `FrameCache::decode_all` 把所有帧的 `FrameData`（bgr 2.7MB + im + ne + y ≈ 6.2MB/帧）解码到内存。
 - 170s / 30fps = 5100 帧 ≈ **30GB**，超出环境内存（27GB / cgroup 限制更低）→ 进程被 SIGTERM(143) 终止。
 - 现象：`find_keyframes` / `sf_ocr` 对 video_source.mp4 约 58s 后静默退出，连"找到 N 个关键帧"都没打印。
-- **对比意义**：传统抽帧（`extract_frames` 用 ffmpeg 流式）不全部驻留内存，可处理长视频；subtitle-finder 全量解码是资源瓶颈。这正是"sf 关键帧 vs 传统抽帧"性能对比的核心差异之一。
+- **对比意义**：传统抽帧（`extract_frames` 用 ffmpeg 流式）不全部驻留内存，可处理长视频；subtitle_finder 全量解码是资源瓶颈。这正是"sf 关键帧 vs 传统抽帧"性能对比的核心差异之一。
 - **待办**：把 decode 改成滑动窗口/流式（状态机 fn 单调递增，只需 DL 窗口 + 少量回溯），避免全量驻留，才能跑完整 170s 对比。

@@ -8,9 +8,9 @@
 //!
 //! # 性能与 Rust 平台限制（重要，改这里前必读）
 //!
-//! 对照基准 `tools/perf-compare/`：g++ `-O3 -march=native` 用 AVX-512（zmm，一次 32 像素）
+//! 对照基准 `tools/perf_compare/`：g++ `-O3 -march=native` 用 AVX-512（zmm，一次 32 像素）
 //! 在调用点自动向量化，sobel_n/h ~0.10ms。我们的同 crate 内联版也能到 ~0.11ms，
-//! **但跨 crate（subtitle-finder 调 geometry）受 Rust 限制只能 ~0.18ms**。原因：
+//! **但跨 crate（subtitle_finder 调 geometry）受 Rust 限制只能 ~0.18ms**。原因：
 //!
 //! 1. `#[inline(always)]` 不能与 `#[target_feature]` 同用（Rust issue #145574，
 //!    nightly 同样禁止，是设计限制）。
@@ -20,7 +20,7 @@
 //!    无 avx512 机器的 fallback 失效。
 //!
 //! 所以 sobel_n/h 跨 crate 仍 ~1.8× 慢于 C++，这是 Rust 平台约束，非算法问题。
-//! 若未来想彻底解决：把 Sobel 内联进调用方（subtitle-finder），或等 Rust 支持
+//! 若未来想彻底解决：把 Sobel 内联进调用方（subtitle_finder），或等 Rust 支持
 //! `#[target_feature]` 跨 crate 内联。
 
 // ============================================================================

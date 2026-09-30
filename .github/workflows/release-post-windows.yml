@@ -1,15 +1,15 @@
 name: release-post-windows
 
-# 手动触发: 构建 subtitle-ocr-post 的单一后处理 CLI 二进制（subtitle-ocr-post）
-# 的 Windows (x86_64-pc-windows-msvc) 资产，上传到 subtitle-ocr-post 对应
+# 手动触发: 构建 subtitle_ocr_post 的单一后处理 CLI 二进制（subtitle_ocr_post）
+# 的 Windows (x86_64-pc-windows-msvc) 资产，上传到 subtitle_ocr_post 对应
 # GitHub Release。
 #
 # 该 CLI 只依赖纯 Rust（无 ort / opencv / ffmpeg），故 Windows 构建不需要
 # LLVM/clang、OpenCV prebuilt、vcpkg ffmpeg，也不需要 onnxruntime —— 产物是
 # 自带运行时的单 exe，zip 里只平铺 exe 即可。与 release-windows.yml（重型
-# subtitle-ocr / subtitle-finder，需 opencv+ffmpeg）正交。
+# subtitle_ocr / subtitle_finder，需 opencv+ffmpeg）正交。
 #
-# 命名: subtitle-ocr-post-x86_64-pc-windows-msvc.zip，上传到 <tag>。
+# 命名: subtitle_ocr_post-x86_64-pc-windows-msvc.zip，上传到 <tag>。
 
 on:
   workflow_dispatch:
@@ -48,16 +48,16 @@ jobs:
       - name: build release bin (pure Rust, no system deps)
         shell: pwsh
         run: |
-          cargo build --release -p subtitle-ocr-post
+          cargo build --release -p subtitle_ocr_post
           if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-          Get-ChildItem target\release\subtitle-ocr-post.exe | Select-Object Name, Length
+          Get-ChildItem target\release\subtitle_ocr_post.exe | Select-Object Name, Length
 
       - name: package zip (exe only)
         shell: pwsh
         run: |
           $outDir = "$env:RUNNER_TEMP\out"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          $b = "subtitle-ocr-post"
+          $b = "subtitle_ocr_post"
           $staging = "$outDir\$b"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
           Copy-Item ".\target\release\$b.exe" $staging
