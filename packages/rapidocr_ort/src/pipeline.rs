@@ -95,20 +95,37 @@ fn warp_perspective(img: &Array3<u8>, polygon: &[Vec2; 4], dst_w: usize, dst_h: 
     let src_mat = src_1d.reshape(3, h as i32).expect("src reshape");
 
     // 显式 flags：INTER_CUBIC + BORDER_REPLICATE，borderValue 0（对齐 cpp）。
-    // 默认提示 ALGO_HINT_ACCURATE：Windows/Linux 均用 OpenCV 5 头（vcpkg 无 opencv5，
-    // Windows 使用官方 prebuilt 5.0.0），仅 8 参重载，无需按平台分流。
+    // OpenCV 5 的 warp_perspective 增加第 8 参 AlgorithmHint（默认即
+    // ALGO_HINT_ACCURATE，与 4.x 无此参时的行为等价）；4.x 仅 7 参。按
+    // build.rs 探测的主版本 cfg 分流（本机 4.10 prebuilt / CI 5.0.0 均可编）。
     let mut dst_mat = opencv::core::Mat::default();
-    imgproc::warp_perspective(
-        &src_mat,
-        &mut dst_mat,
-        &m,
-        opencv::core::Size::new(dst_w as i32, dst_h as i32),
-        opencv::imgproc::INTER_CUBIC,
-        opencv::core::BORDER_REPLICATE,
-        opencv::core::Scalar::new(0.0, 0.0, 0.0, 0.0),
-        opencv::core::AlgorithmHint::ALGO_HINT_ACCURATE,
-    )
-    .expect("warpPerspective cubic");
+    #[cfg(ocvrs_opencv_branch_5)]
+    {
+        imgproc::warp_perspective(
+            &src_mat,
+            &mut dst_mat,
+            &m,
+            opencv::core::Size::new(dst_w as i32, dst_h as i32),
+            opencv::imgproc::INTER_CUBIC,
+            opencv::core::BORDER_REPLICATE,
+            opencv::core::Scalar::new(0.0, 0.0, 0.0, 0.0),
+            opencv::core::AlgorithmHint::ALGO_HINT_ACCURATE,
+        )
+        .expect("warpPerspective cubic");
+    }
+    #[cfg(not(ocvrs_opencv_branch_5))]
+    {
+        imgproc::warp_perspective(
+            &src_mat,
+            &mut dst_mat,
+            &m,
+            opencv::core::Size::new(dst_w as i32, dst_h as i32),
+            opencv::imgproc::INTER_CUBIC,
+            opencv::core::BORDER_REPLICATE,
+            opencv::core::Scalar::new(0.0, 0.0, 0.0, 0.0),
+        )
+        .expect("warpPerspective cubic");
+    }
 
     // 读回 Array3。
     let mut out = Array3::<u8>::zeros((dst_h, dst_w, c));

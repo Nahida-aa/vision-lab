@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use rapidocr_ort::{ModelProfile, OcrBoxResult, OcrEngine};
+use rapidocr_ort::{ExecutionBackend, ModelProfile, OcrBoxResult, OcrEngine};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +14,10 @@ struct Cli {
     /// 模型套件：v3 / v6-tiny / v6-medium
     #[arg(long, value_enum, default_value_t = ModelProfile::V4)]
     model: ModelProfile,
+
+    /// 推理执行后端：cpu / cuda / directml（cuda、directml 需以对应 ep-* feature 构建）
+    #[arg(long, value_enum, default_value_t = ExecutionBackend::default())]
+    ep: ExecutionBackend,
 
     /// 输入图片路径
     image: String,
@@ -71,7 +75,8 @@ fn main() -> Result<()> {
     let model_dir = resolve_path(&repo_root, &cli.model_dir)?;
     let image_path = resolve_path(&repo_root, &cli.image)?;
 
-    let mut engine = OcrEngine::from_profile(cli.model, &model_dir).context("构建 OCR 引擎失败")?;
+    let mut engine = OcrEngine::from_profile_with_backend(cli.model, &model_dir, cli.ep)
+        .context("构建 OCR 引擎失败")?;
 
     // 读图 -> BGR HWC u8（对齐 cpp cv::imread / subtitle_ocr 约定，见 rapidocr_ort::load_image）。
     let arr = rapidocr_ort::load_image(&image_path)?;

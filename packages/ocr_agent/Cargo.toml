@@ -29,7 +29,7 @@ glam = { workspace = true }
 
 # 示例侧依赖（examples 可用 dev-dependencies）。
 [dev-dependencies]
-rapidocr_ort = { workspace = true }
+rapidocr_ort = { workspace = true, features = ["default"] }
 serde_json.workspace = true
 # 驱动 capturer 的 async（ashpd 走 async-io 后端）。
 async-io = "2"
