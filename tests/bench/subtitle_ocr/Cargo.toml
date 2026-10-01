@@ -10,6 +10,8 @@ description = "subtitle_ocr 三实现（cpp/py/rust）的准确性与速度基�
 serde_json = { workspace = true }
 # 跨包流程例子（sf_ocr bin）：subtitle_finder 提关键帧 → subtitle_ocr 识别。
 subtitle_finder = { workspace = true }
+# workspace 已统一关默认 features（ort 静态/动态形态切换，见 rapidocr_ort
+# [features] 注释）；本包 default 还原，`--no-default-features` 切动态链接。
 subtitle_ocr = { workspace = true }
 # ModelProfile（subtitle_ocr 的 from_profile 入参）。
 rapidocr_ort = { workspace = true }
@@ -18,6 +20,11 @@ anyhow.workspace = true
 image.workspace = true
 # sf 基准：关键帧 frame 是 ndarray Array3。
 ndarray.workspace = true
+
+[features]
+# 还原 subtitle_ocr → rapidocr_ort → ort 默认（静态链接 + api-27，CI/VS2022）；
+# VS2019 本机构建用 `--no-default-features` 关掉，转 ort 动态链接。
+default = ["subtitle_ocr/default", "rapidocr_ort/default"]
 
 [lib]
 name = "bench_subtitle_ocr"

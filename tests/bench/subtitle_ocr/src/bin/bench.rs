@@ -224,8 +224,12 @@ struct Timings {
 
 /// rust 实现二进制路径（与 cpp 对称，在 packages/subtitle_ocr 下构建）。
 /// 优先用 release 构建（与 cpp 的 release 二进制公平对比；debug 二进制因未优化
-/// opencv/ort 会慢一个数量级，RTF 不可比）。
-fn rust_bin() -> PathBuf {
+/// opencv/ort 会慢一个数量级，RTF 不可比）。`--rust-bin` 可显式指定（如 CPU/GPU
+/// 两个不同 feature 构建的 exe 分别跑基准，避免相互覆盖）。
+fn rust_bin(override_bin: Option<&Path>) -> PathBuf {
+    if let Some(p) = override_bin {
+        return p.to_path_buf();
+    }
     let root = repo_root();
     let release = root.join("target").join("release").join("subtitle_ocr");
     if release.exists() {
@@ -242,16 +246,21 @@ fn ocr_frame_rust(
     text_score: Option<f64>,
     subtitle_only: bool,
     _threads: Option<usize>,
+    ep: &str,
+    bin: &Path,
 ) -> CppFrame {
-    let bin = rust_bin();
+    let bin = bin.to_path_buf();
     let mut args: Vec<String> = vec![frame.to_str().unwrap().to_string()];
     if let Some(ts) = text_score {
-        args.push("--text-score".to_string());
+        // rust CLI 的旗标名与 cpp 不同：--text-confidence-threshold（非 --text-score）。
+        args.push("--text-confidence-threshold".to_string());
         args.push(ts.to_string());
     }
     if subtitle_only {
         args.push("--subtitle-only".to_string());
     }
+    args.push("--ep".to_string());
+    args.push(ep.to_string());
     let t0 = std::time::Instant::now();
     let out = Command::new(&bin).args(&args).output();
     let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -269,11 +278,14 @@ fn ocr_dir_rust(
     subtitle_only: bool,
     _threads: Option<usize>,
     warp_crop: bool,
+    ep: &str,
+    bin: &Path,
 ) -> Vec<CppFrame> {
-    let bin = rust_bin();
+    let bin = bin.to_path_buf();
     let mut args: Vec<String> = vec!["--dir".to_string(), frame_dir.to_str().unwrap().to_string()];
     if let Some(ts) = text_score {
-        args.push("--text-score".to_string());
+        // rust CLI 的旗标名与 cpp 不同：--text-confidence-threshold（非 --text-score）。
+        args.push("--text-confidence-threshold".to_string());
         args.push(ts.to_string());
     }
     if subtitle_only {
@@ -282,6 +294,9 @@ fn ocr_dir_rust(
     if warp_crop {
         args.push("--warp-crop".to_string());
     }
+    // 执行后端透传（cpu/cuda/directml）；CPU 二进制也接受 --ep cpu（默认值）。
+    args.push("--ep".to_string());
+    args.push(ep.to_string());
     let t0 = std::time::Instant::now();
     let out = Command::new(&bin).args(&args).output();
     let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -548,8 +563,23 @@ fn run_benchmark_cpp(
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
+/// 把抽帧目录的 `frame_%05d.jpg` 重命名成 rust `--dir` 的 `ms` 命名约定
+/// （时间 = 序号 × 步长 / 源帧率，毫秒，零填充定宽保持排序稳定）。
+///
+/// rust CLI 的 `--dir` 按文件名解析时间戳，`frame_00001.jpg` 不符合 `ms`/`ms_ms`
+/// 格式会直接报错；cpp/py 驱动只按文件名排序枚举，不受重命名影响。
+fn rename_frames_to_ms(dir: &Path, step: u64, src_fps: f64) -> std::io::Result<()> {
+    let files = list_frame_files(dir);
+    for (i, f) in files.iter().enumerate() {
+        let ms = (((i as f64) * (step as f64)) / src_fps * 1000.0).round() as u64;
+        let new = dir.join(format!("{:07}.jpg", ms));
+        std::fs::rename(f, &new)?;
+    }
+    Ok(())
+}
+
 /// 与 `run_benchmark_cpp` 完全对称，仅把 OCR 调用换成 rust 实现
-/// （`ocr_dir_rust` / `ocr_frame_rust`），引擎标签改为 `ort-rust`。
+/// （`ocr_dir_rust` / `ocr_frame_rust`），引擎标签改为 `ort-rust[-<ep>]`。
 /// 帧抽取、合并、CER、时序对齐、summary 复用同一套代码，保证两实现可横比。
 fn run_benchmark_rust(
     label: &str,
@@ -559,23 +589,34 @@ fn run_benchmark_rust(
     use_dir: bool,
     threads: Option<usize>,
     warp_crop: bool,
+    ep: &str,
+    bin: &Path,
 ) {
     let vpath = video_path();
     let out_dir = tmp_dir().join(format!("frames-{}", label));
+    // 先清残留再抽帧：上次异常中断（如 Ctrl-C / kill）会留下旧帧，与本次
+    // 重命名后的 ms 文件名混在一起，导致 --dir 识别到双份帧、CER 被污染。
+    let _ = std::fs::remove_dir_all(&out_dir);
     std::fs::create_dir_all(&out_dir).unwrap();
 
-    println!("\n=== OCR Benchmark: {} (fps={}, engine=ort-rust, mode={}, threads={}) ===",
-        label, fps, if use_dir { "--dir" } else { "single-frame" },
+    let engine_tag = if ep == "cpu" {
+        "ort-rust".to_string()
+    } else {
+        format!("ort-rust-{}", ep)
+    };
+    println!("\n=== OCR Benchmark: {} (fps={}, engine={}, mode={}, threads={}) ===",
+        label, fps, engine_tag, if use_dir { "--dir" } else { "single-frame" },
         threads.map(|n| n.to_string()).unwrap_or_else(|| "default".into()));
     println!("  extracting frames...");
     let (duration_s, step, src_fps) = extract_frames(&vpath, &out_dir, fps);
+    rename_frames_to_ms(&out_dir, step, src_fps).expect("帧重命名为 ms 失败");
     let frame_files = list_frame_files(&out_dir);
 
     let mut frame_results: Vec<FrameResult> = Vec::new();
     let mut total_ms = 0.0f64;
 
     if use_dir {
-        let results = ocr_dir_rust(&out_dir, Some(text_score), subtitle_only, threads, warp_crop);
+        let results = ocr_dir_rust(&out_dir, Some(text_score), subtitle_only, threads, warp_crop, ep, bin);
         for (i, r) in results.into_iter().enumerate() {
             let timestamp = (((i as f64) * (step as f64)) / src_fps * 1000.0).round() as u64;
             frame_results.push(FrameResult {
@@ -588,7 +629,7 @@ fn run_benchmark_rust(
         }
     } else {
         for (i, f) in frame_files.iter().enumerate() {
-            let r = ocr_frame_rust(f, Some(text_score), subtitle_only, threads);
+            let r = ocr_frame_rust(f, Some(text_score), subtitle_only, threads, ep, bin);
             let timestamp = (((i as f64) * (step as f64)) / src_fps * 1000.0).round() as u64;
             frame_results.push(FrameResult {
                 text: r.text.clone(),
@@ -623,11 +664,12 @@ fn run_benchmark_rust(
                 "confidence": s.confidence,
             })).collect::<Vec<_>>(),
         },
-        "_engine": "ort-rust",
+        "_engine": engine_tag,
         "_source": "video_hardsub",
         "_fps": fps,
         "_textScore": text_score,
         "_subtitleOnly": subtitle_only,
+        "_ep": ep,
         "_timingsMs": if has_timings {
             serde_json::json!({
                 "total": total_ms.round() as u64,
@@ -652,7 +694,7 @@ fn run_benchmark_rust(
     let summary = Summary {
         label: label.to_string(),
         fps,
-        engine: "ort-rust".to_string(),
+        engine: engine_tag.clone(),
         frames: frame_results.len(),
         segments: segments.len(),
         audio_duration_s: (duration_s * 10.0).round() / 10.0,
@@ -680,6 +722,7 @@ fn run_benchmark_rust(
         "label": summary.label,
         "fps": summary.fps,
         "engine": summary.engine,
+        "ep": ep,
         "frames": summary.frames,
         "segments": summary.segments,
         "audio_duration_s": summary.audio_duration_s,
@@ -785,8 +828,16 @@ fn run_benchmark_sf(
     let frame_files = list_frame_files(&out_dir);
     println!("  saved {} 关键帧到 {}", frame_files.len(), out_dir.display());
 
-    // 批量 OCR。
-    let results = ocr_dir_rust(&out_dir, Some(text_score), subtitle_only, threads, warp_crop);
+    // 批量 OCR（sf 路径固定用默认 CPU 二进制）。
+    let results = ocr_dir_rust(
+        &out_dir,
+        Some(text_score),
+        subtitle_only,
+        threads,
+        warp_crop,
+        "cpu",
+        &rust_bin(None),
+    );
     let mut total_ms = 0.0f64;
     for r in &results {
         total_ms += r.total_ms;
@@ -1017,6 +1068,10 @@ fn main() {
     let mut threads: Option<usize> = None;
     // rust 侧用 --warp-crop 对齐 cpp 的透视矫正裁剪（实验）。
     let mut warp_crop = false;
+    // rust 侧执行后端：cpu / cuda / directml（透传给 subtitle_ocr --ep）。
+    let mut ep = "cpu".to_string();
+    // rust 二进制覆盖（CPU/GPU 两个 feature 构建的 exe 分开跑基准时用）。
+    let mut rust_bin_override: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -1063,17 +1118,31 @@ fn main() {
                 warp_crop = true;
                 i += 1;
             }
+            "--ep" => {
+                if let Some(v) = args.get(i + 1) {
+                    ep = v.clone();
+                }
+                i += 2;
+            }
+            "--rust-bin" => {
+                if let Some(v) = args.get(i + 1) {
+                    rust_bin_override = Some(PathBuf::from(v));
+                }
+                i += 2;
+            }
             _ => i += 1,
         }
     }
 
     // 对齐 label 生成规则：ocr-${engine}-fps${fps}${so?-so}${-ts${textScore}}
     let engine = match impl_.as_str() {
-        "cpp" => "cpp",
-        "py" => "python",
-        "rust" => "rust",
-        "sf" => "sf",
-        other => other,
+        "cpp" => "cpp".to_string(),
+        "py" => "python".to_string(),
+        "rust" if ep == "cpu" => "rust".to_string(),
+        // GPU 后端进 label，避免同目录结果互相覆盖：ocr-rust-cuda-fps2-so-ts0.45
+        "rust" => format!("rust-{}", ep),
+        "sf" => "sf".to_string(),
+        other => other.to_string(),
     };
     let ts_label = format!("-ts{}", text_score);
     let base_label = format!(
@@ -1095,7 +1164,21 @@ fn main() {
             eprintln!("[py] 基准尚未实现（未装 rapidocr_onnxruntime）");
             std::process::exit(1);
         }
-        "rust" => run_benchmark_rust(&label, fps, text_score, subtitle_only, use_dir, threads, warp_crop),
+        "rust" => {
+            let bin = rust_bin(rust_bin_override.as_deref());
+            println!("  rust bin: {}", bin.display());
+            run_benchmark_rust(
+                &label,
+                fps,
+                text_score,
+                subtitle_only,
+                use_dir,
+                threads,
+                warp_crop,
+                &ep,
+                &bin,
+            )
+        }
         // subtitle_finder 关键帧路径（对比传统抽帧）：用独立 label，不用 fps。
         "sf" => {
             let sf_label = format!("sf-{}", text_score);

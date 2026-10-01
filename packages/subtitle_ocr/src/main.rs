@@ -29,6 +29,10 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = rapidocr_ort::ModelProfile::V4)]
     model: rapidocr_ort::ModelProfile,
 
+    /// 推理执行后端：cpu / cuda / directml（cuda、directml 需以对应 ep-* feature 构建）
+    #[arg(long, value_enum, default_value_t = rapidocr_ort::ExecutionBackend::default())]
+    ep: rapidocr_ort::ExecutionBackend,
+
     /// 模型目录（默认仓库根 data/models/rapidocr，可经 RAPIDOCR_MODEL_DIR 覆盖）
     #[arg(long, env = "RAPIDOCR_MODEL_DIR", default_value = rapidocr_ort::DEFAULT_MODEL_DIR)]
     model_dir: String,
@@ -123,6 +127,7 @@ fn main() -> Result<()> {
         use_nms: !cli.no_nms,
         text_confidence_threshold: cli.text_confidence_threshold.unwrap_or(0.5),
         use_warp_crop: cli.warp_crop,
+        execution_backend: cli.ep,
     };
 
     let mut ocr = SubtitleOcr::from_profile(cli.model, &model_dir, opts)
