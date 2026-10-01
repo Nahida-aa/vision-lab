@@ -12,9 +12,9 @@ DirectML 在 RTX 3060 上比同机 CPU 快 **5.4~5.9×**，且**输出与 CPU �
 
 | 运行 | 执行后端 | 推理总耗时 | 平均/帧 | RTF |
 | ---- | -------- | ---------: | ------: | ---: |
-| run 1 | CPU（`--ep cpu`） | 310.3 s | 910 ms | 1.825 |
+| run 1 | CPU（主 bin `subtitle_ocr`） | 310.3 s | 910 ms | 1.825 |
 | run 2 | CPU | 286.8 s | 841 ms | 1.687 |
-| run 1 | DirectML（`--ep directml`，RTX 3060） | 52.5 s | 154 ms | 0.309 |
+| run 1 | DirectML（专用 bin `directml`，RTX 3060） | 52.5 s | 154 ms | 0.309 |
 | run 2 | DirectML | 52.9 s | 155 ms | 0.311 |
 
 加速比（同序号运行相除）：5.91× / 5.43×。CPU 两轮波动 7.6%（在 README 记录的
@@ -61,14 +61,18 @@ DirectML 在 RTX 3060 上比同机 CPU 快 **5.4~5.9×**，且**输出与 CPU �
 ## 复现
 
 ```bash
-# 1. 构建（VS2019 工具链须走 ort 动态链接形态，见「构建差异」）
+# 1. 构建（VS2019 工具链须走 ort 动态链接形态，见「构建差异」）。
+#    产物两个 exe：subtitle_ocr.exe（CPU 主 bin）+ directml.exe（DirectML 专用
+#    bin，经 required-features 挂在 ep-directml feature 上，不开 feature 不编译）。
 export ORT_LIB_LOCATION=<含 onnxruntime.lib 的目录>   # MS DirectML nuget 解包
 export ORT_PREFER_DYNAMIC_LINK=1
-cargo build --release -p subtitle_ocr --bin subtitle_ocr \
-  --no-default-features --features rapidocr_ort/ep-directml
+cargo build --release -p subtitle_ocr --bin subtitle_ocr --bin directml \
+  --no-default-features --features ep-directml
 cargo build --release -p bench_subtitle_ocr --bin bench --no-default-features
 
-# 2. 跑基准（exe 须放在仓库根下两级目录内，模型目录按 exe 位置解析）
+# 2. 跑基准（exe 须放在仓库根下两级目录内，模型目录按 exe 位置解析；
+#    --ep 选后端 → 自动选 exe：cpu → subtitle_ocr，directml → 同目录 directml.exe，
+#    也可 --directml-bin 显式指定）
 ./target/release/bench.exe --impl rust --dir --warp-crop --ep cpu \
   --rust-bin packages/tmp/subtitle_ocr.exe
 ORT_EP_DEVICE_ID=1 ./target/release/bench.exe --impl rust --dir --warp-crop \
@@ -77,6 +81,20 @@ ORT_EP_DEVICE_ID=1 ./target/release/bench.exe --impl rust --dir --warp-crop \
 
 结果写至 `packages/tmp/ocr-bench/<label>/metadata/{ocr,summary}.json`
 （label：`ocr-rust[-directml]-fps2-so-ts0.45`）。
+
+## 后端分离设计（DirectML 专用 bin）
+
+CPU 与 DirectML 不共用 CLI 旗标——后端差异在**二进制层面**分开：
+
+| bin | 后端 | 编译条件 | meta 溯源 |
+| --- | ---- | -------- | --------- |
+| `subtitle_ocr` | CPU（固定，无 GPU 旗标） | 默认 | engine `ort-rust` / device `Cpu` |
+| `directml` | DirectML（固定） | `--features ep-directml` | engine `ort-rust-directml` / device `Directml` |
+
+两个 bin 的旗标集一致，解析后的执行流程共用（`subtitle_ocr::cli` 模块：
+建引擎 → 建条目 → 逐条 OCR → 落盘/打印），差异收敛在 `RunArgs` 的三个溯源
+字段上。`rapidocr_ort` 库层的 `from_profile_with_backend` / `ExecutionBackend`
+是共用底座，但任何 CLI 都不暴露「选后端」的旗标。
 
 ## ⚠️ 多适配器机器的设备陷阱（`ORT_EP_DEVICE_ID`）
 
@@ -106,7 +124,7 @@ ORT_EP_DEVICE_ID=1 ./target/release/bench.exe --impl rust --dir --warp-crop \
   - 本机（VS2019）：`--no-default-features` → 仅请求 ORT API 17 +
     `ORT_LIB_LOCATION` / `ORT_PREFER_DYNAMIC_LINK=1` 动态链接（MS nuget 的
     `onnxruntime.lib` 是 2.8KB 导入库）。DirectML nuget 的 DLL 自带 CPU EP，
-    故 `--ep cpu` / `--ep directml` 共用一个二进制、一个 DLL。
+    故 CPU / DirectML 共用一个 DLL（各用专属 bin，见「后端分离设计」）。
 - **OpenCV 4.10 兼容**：本机无 OpenCV 5 prebuilt（GitHub 直连下载过慢），本地
   4.10 的 `warp_perspective` 没有 OpenCV 5 新增的第 8 参 `AlgorithmHint`。
   `packages/rapidocr_ort/build.rs` 从头文件解析主版本发
@@ -136,5 +154,5 @@ ORT_EP_DEVICE_ID=1 ./target/release/bench.exe --impl rust --dir --warp-crop \
    （cpp/py 驱动不受影响）。
 3. 上次运行异常中断会残留帧目录，与新抽帧混在一起导致 CER 被污染 → 抽帧前
    先清空目录。
-4. bench 新增 `--ep`（透传给 subtitle_ocr）与 `--rust-bin`（CPU/GPU 两个
-   feature 形态的 exe 分开跑），GPU 后端进 label 避免结果互相覆盖。
+4. bench 新增 `--ep`（选后端 → 自动选对应 exe）与 `--rust-bin` / `--directml-bin`
+   （CPU / GPU 两个 feature 形态的 exe 分开跑），GPU 后端进 label 避免结果互相覆盖。

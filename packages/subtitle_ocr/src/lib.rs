@@ -11,10 +11,15 @@
 
 use anyhow::Result;
 use ndarray::{Array3, s};
-use rapidocr_ort::{ExecutionBackend, ModelProfile, OcrEngine};
+use rapidocr_ort::{ModelProfile, OcrEngine};
+// ExecutionBackend 公开转发：cli::RunArgs（公共结构体）的字段用到它，
+// 各 bin 经本包路径引用（rapidocr_ort 是私有依赖细节）。
+pub use rapidocr_ort::ExecutionBackend;
 use std::path::PathBuf;
 
 // ── 内部模块 ──
+/// 各 CLI bin（主 bin / directml 专用 bin）共用的执行流程（旗标不共用，见模块注释）。
+pub mod cli;
 pub(crate) mod geometry;
 pub mod util;
 

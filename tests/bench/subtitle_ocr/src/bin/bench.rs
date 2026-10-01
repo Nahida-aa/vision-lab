@@ -241,12 +241,14 @@ fn rust_bin(override_bin: Option<&Path>) -> PathBuf {
 
 /// 对齐 ocrFrameCpp：单帧模式调用 rust 二进制（subtitle_ocr），取 segments 里最高
 /// confidence 的一个作为该帧文本（丢弃 box，与 cpp 路径行为一致）。
+///
+/// `bin` 由调用方按 `--ep` 选好：cpu → 主 bin `subtitle_ocr`，directml → 专用
+/// bin `directml`（后端差异在二进制层面分开，CLI 无共用旗标，无需向子进程传）。
 fn ocr_frame_rust(
     frame: &Path,
     text_score: Option<f64>,
     subtitle_only: bool,
     _threads: Option<usize>,
-    ep: &str,
     bin: &Path,
 ) -> CppFrame {
     let bin = bin.to_path_buf();
@@ -259,8 +261,6 @@ fn ocr_frame_rust(
     if subtitle_only {
         args.push("--subtitle-only".to_string());
     }
-    args.push("--ep".to_string());
-    args.push(ep.to_string());
     let t0 = std::time::Instant::now();
     let out = Command::new(&bin).args(&args).output();
     let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -278,7 +278,6 @@ fn ocr_dir_rust(
     subtitle_only: bool,
     _threads: Option<usize>,
     warp_crop: bool,
-    ep: &str,
     bin: &Path,
 ) -> Vec<CppFrame> {
     let bin = bin.to_path_buf();
@@ -294,9 +293,6 @@ fn ocr_dir_rust(
     if warp_crop {
         args.push("--warp-crop".to_string());
     }
-    // 执行后端透传（cpu/cuda/directml）；CPU 二进制也接受 --ep cpu（默认值）。
-    args.push("--ep".to_string());
-    args.push(ep.to_string());
     let t0 = std::time::Instant::now();
     let out = Command::new(&bin).args(&args).output();
     let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -581,6 +577,9 @@ fn rename_frames_to_ms(dir: &Path, step: u64, src_fps: f64) -> std::io::Result<(
 /// 与 `run_benchmark_cpp` 完全对称，仅把 OCR 调用换成 rust 实现
 /// （`ocr_dir_rust` / `ocr_frame_rust`），引擎标签改为 `ort-rust[-<ep>]`。
 /// 帧抽取、合并、CER、时序对齐、summary 复用同一套代码，保证两实现可横比。
+///
+/// `bin` 由调用方按 `--ep` 选定：cpu → 主 bin `subtitle_ocr`，directml → 专用
+/// bin `directml`（后端差异在二进制层面分开，CLI 无共用旗标）。
 fn run_benchmark_rust(
     label: &str,
     fps: f64,
@@ -616,7 +615,7 @@ fn run_benchmark_rust(
     let mut total_ms = 0.0f64;
 
     if use_dir {
-        let results = ocr_dir_rust(&out_dir, Some(text_score), subtitle_only, threads, warp_crop, ep, bin);
+        let results = ocr_dir_rust(&out_dir, Some(text_score), subtitle_only, threads, warp_crop, bin);
         for (i, r) in results.into_iter().enumerate() {
             let timestamp = (((i as f64) * (step as f64)) / src_fps * 1000.0).round() as u64;
             frame_results.push(FrameResult {
@@ -629,7 +628,7 @@ fn run_benchmark_rust(
         }
     } else {
         for (i, f) in frame_files.iter().enumerate() {
-            let r = ocr_frame_rust(f, Some(text_score), subtitle_only, threads, ep, bin);
+            let r = ocr_frame_rust(f, Some(text_score), subtitle_only, threads, bin);
             let timestamp = (((i as f64) * (step as f64)) / src_fps * 1000.0).round() as u64;
             frame_results.push(FrameResult {
                 text: r.text.clone(),
@@ -828,14 +827,13 @@ fn run_benchmark_sf(
     let frame_files = list_frame_files(&out_dir);
     println!("  saved {} 关键帧到 {}", frame_files.len(), out_dir.display());
 
-    // 批量 OCR（sf 路径固定用默认 CPU 二进制）。
+    // 批量 OCR（sf 路径固定用默认 CPU 主 bin）。
     let results = ocr_dir_rust(
         &out_dir,
         Some(text_score),
         subtitle_only,
         threads,
         warp_crop,
-        "cpu",
         &rust_bin(None),
     );
     let mut total_ms = 0.0f64;
@@ -1068,10 +1066,13 @@ fn main() {
     let mut threads: Option<usize> = None;
     // rust 侧用 --warp-crop 对齐 cpp 的透视矫正裁剪（实验）。
     let mut warp_crop = false;
-    // rust 侧执行后端：cpu / cuda / directml（透传给 subtitle_ocr --ep）。
+    // rust 侧执行后端：cpu / directml。决定用哪个 exe（后端差异在二进制层面，
+    // 主 bin subtitle_ocr = CPU，专用 bin directml = DirectML，不共用旗标）。
     let mut ep = "cpu".to_string();
-    // rust 二进制覆盖（CPU/GPU 两个 feature 构建的 exe 分开跑基准时用）。
+    // rust CPU 主 bin 覆盖（默认 target/release/subtitle_ocr）。
     let mut rust_bin_override: Option<PathBuf> = None;
+    // rust DirectML 专用 bin 覆盖（默认与 rust-bin 同目录的 directml.exe）。
+    let mut directml_bin_override: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -1130,6 +1131,12 @@ fn main() {
                 }
                 i += 2;
             }
+            "--directml-bin" => {
+                if let Some(v) = args.get(i + 1) {
+                    directml_bin_override = Some(PathBuf::from(v));
+                }
+                i += 2;
+            }
             _ => i += 1,
         }
     }
@@ -1165,7 +1172,24 @@ fn main() {
             std::process::exit(1);
         }
         "rust" => {
-            let bin = rust_bin(rust_bin_override.as_deref());
+            // 按后端选 exe：cpu → 主 bin subtitle_ocr；directml → 专用 bin directml
+            // （默认取 --rust-bin 同目录的 directml.exe，两个产物通常放一起）。
+            let bin = match ep.as_str() {
+                "cpu" => rust_bin(rust_bin_override.as_deref()),
+                "directml" => directml_bin_override.clone().unwrap_or_else(|| {
+                    rust_bin(rust_bin_override.as_deref())
+                        .parent()
+                        .unwrap_or(Path::new("."))
+                        .join("directml.exe")
+                }),
+                other => {
+                    eprintln!(
+                        "未知后端: {}（rust 路径支持 cpu / directml；cuda 无专用 bin，见 rapidocr_ort ep.rs）",
+                        other
+                    );
+                    std::process::exit(2);
+                }
+            };
             println!("  rust bin: {}", bin.display());
             run_benchmark_rust(
                 &label,

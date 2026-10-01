@@ -23,10 +23,20 @@ path = "src/lib.rs"
 name = "subtitle_ocr"
 path = "src/main.rs"
 
+# DirectML（GPU）执行后端专用 bin：与主 bin 不共用旗标（后端差异在二进制层面
+# 分开）。以 required-features 挂在 ep-directml feature 上——常规 CI 构建（不开
+# GPU feature）不会编译/产出这个二进制。
+[[bin]]
+name = "directml"
+path = "src/bin/directml.rs"
+required-features = ["ep-directml"]
+
 [features]
 # 还原 rapidocr_ort 默认（ort 静态链接 + api-27，CI/VS2022 常规形态）；
 # VS2019 本机构建用 `--no-default-features` 关掉，转 ort 动态链接。
 default = ["rapidocr_ort/default"]
+# GPU 执行后端（directml bin 依赖此 feature；透传 rapidocr_ort → ort/directml）。
+ep-directml = ["rapidocr_ort/ep-directml"]
 
 [dependencies]
 ocr_types = { workspace = true }
