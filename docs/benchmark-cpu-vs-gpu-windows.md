@@ -63,7 +63,8 @@ DirectML 在 RTX 3060 上比同机 CPU 快 **5.4~5.9×**，且**输出与 CPU �
 ```bash
 # 1. 构建（VS2019 工具链须走 ort 动态链接形态，见「构建差异」）。
 #    产物两个 exe：subtitle_ocr.exe（CPU 主 bin）+ directml.exe（DirectML 专用
-#    bin，经 required-features 挂在 ep-directml feature 上，不开 feature 不编译）。
+#    bin，无条件编译；实际跑 DirectML 需开 ep-directml feature，缺 feature 的
+#    产物运行时硬报错）。
 export ORT_LIB_LOCATION=<含 onnxruntime.lib 的目录>   # MS DirectML nuget 解包
 export ORT_PREFER_DYNAMIC_LINK=1
 cargo build --release -p subtitle_ocr --bin subtitle_ocr --bin directml \
@@ -89,7 +90,7 @@ CPU 与 DirectML 不共用 CLI 旗标——后端差异在**二进制层面**分
 | bin | 后端 | 编译条件 | meta 溯源 |
 | --- | ---- | -------- | --------- |
 | `subtitle_ocr` | CPU（固定，无 GPU 旗标） | 默认 | engine `ort-rust` / device `Cpu` |
-| `directml` | DirectML（固定） | `--features ep-directml` | engine `ort-rust-directml` / device `Directml` |
+| `directml` | DirectML（固定） | 无条件编译；跑 GPU 需 `--features ep-directml`，缺 feature 运行时硬报错 | engine `ort-rust-directml` / device `Directml` |
 
 两个 bin 的旗标集一致，解析后的执行流程共用（`subtitle_ocr::cli` 模块：
 建引擎 → 建条目 → 逐条 OCR → 落盘/打印），差异收敛在 `RunArgs` 的三个溯源

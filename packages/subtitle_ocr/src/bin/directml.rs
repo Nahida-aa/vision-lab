@@ -6,8 +6,9 @@
 //! （engine `ort-rust-directml` / device `Directml`）。
 //!
 //! 构建与运行前提（见 Cargo.toml / rapidocr_ort [features] 注释）：
-//! - 编译需 `ep-directml` feature（本 bin 以 `required-features` 挂在其上，
-//!   常规 CI 构建不会产出这个二进制）；
+//! - 本 bin 无条件编译（普通 cargo build 即有产物）；但**实际执行** DirectML
+//!   需以 `ep-directml` feature 构建，缺 feature 的产物在运行时建引擎一步
+//!   硬报错（rapidocr_ort ep.rs），不会静默回退 CPU；
 //! - VS2019 工具链下用 `--no-default-features` 走 ort 动态链接（运行时的
 //!   `onnxruntime.dll` 需含 DirectML EP，如 MS 官方 DirectML nuget）；
 //! - 多适配器机器用 `ORT_EP_DEVICE_ID` 指定 GPU 序号（0 未必是独显，本机

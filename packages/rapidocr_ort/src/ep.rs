@@ -81,8 +81,8 @@ impl ExecutionBackend {
                     let _ = builder;
                     let _ = device_id;
                     anyhow::bail!(
-                        "--ep cuda 需要以 `ep-cuda` feature 构建的二进制 \
-                         （cargo build --release -p subtitle_ocr --features rapidocr_ort/ep-cuda），\
+                        "CUDA 执行后端需以 `ep-cuda` feature 构建的二进制 \
+                         （cargo build --release -p subtitle_ocr --features ep-cuda），\
                          当前二进制仅支持 CPU"
                     )
                 }
@@ -101,8 +101,8 @@ impl ExecutionBackend {
                     let _ = builder;
                     let _ = device_id;
                     anyhow::bail!(
-                        "--ep directml 需要以 `ep-directml` feature 构建的二进制 \
-                         （cargo build --release -p subtitle_ocr --features rapidocr_ort/ep-directml），\
+                        "DirectML 执行后端需以 `ep-directml` feature 构建的二进制 \
+                         （cargo build --release -p subtitle_ocr --features ep-directml），\
                          当前二进制仅支持 CPU"
                     )
                 }

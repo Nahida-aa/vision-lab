@@ -24,12 +24,12 @@ name = "subtitle_ocr"
 path = "src/main.rs"
 
 # DirectML（GPU）执行后端专用 bin：与主 bin 不共用旗标（后端差异在二进制层面
-# 分开）。以 required-features 挂在 ep-directml feature 上——常规 CI 构建（不开
-# GPU feature）不会编译/产出这个二进制。
+# 分开）。无条件编译（普通 cargo build 也有产物）；实际执行 DirectML 需要开启
+# ep-directml feature 构建，缺 feature 的产物在运行时建引擎一步硬报错（见
+# rapidocr_ort ep.rs），不会静默回退 CPU。
 [[bin]]
 name = "directml"
 path = "src/bin/directml.rs"
-required-features = ["ep-directml"]
 
 [features]
 # 还原 rapidocr_ort 默认（ort 静态链接 + api-27，CI/VS2022 常规形态）；
