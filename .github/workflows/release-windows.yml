@@ -1,7 +1,7 @@
 name: release-windows
 
-# 手动触发: 构建 subtitle_finder / subtitle_ocr 的 Windows (x86_64-pc-windows-msvc)
-# 资产并上传到 vision-lab 对应 GitHub Release。
+# 手动触发: 构建 subtitle_finder / subtitle_ocr / subtitle_ocr_directml 的
+# Windows (x86_64-pc-windows-msvc) 资产并上传到 vision-lab 对应 GitHub Release。
 #
 # 资产形态: zip (exe + 运行时 dll)。动态链接官方 OpenCV 5.0.0 prebuilt + vcpkg ffmpeg,
 # zip 里 exe 与全部所需 dll 平铺 (Windows PE 优先同目录找 dll), 解压目录即 bin dir。
@@ -36,6 +36,10 @@ on:
         description: "subtitle_finder 上传目标 tag（默认 subtitle-finder-v0.1.0）"
         type: string
         default: "subtitle-finder-v0.1.0"
+      upload_directml:
+        description: "构建并上传 subtitle_ocr_directml 到 tag_ocr（DirectML/GPU 专用 bin，与主 bin 同 tag）"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -132,6 +136,13 @@ jobs:
           # 只负责重型推理 bin。
           cargo build --release -p subtitle_ocr --bin subtitle_ocr -p subtitle_finder --bin subtitle_finder
           if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+          # subtitle_ocr_directml（DirectML/GPU 专用 bin）单独构建：ep-directml 透传
+          # rapidocr_ort → ort/directml（DirectML EP 编译入产物）。不与主 bin 共用
+          # 一次 cargo 调用——feature 统一会改变主 bin 的链接形态。CI 用默认静态
+          # prebuilt ORT（本机基准验证用的是 MS DirectML nuget 动态形态），EP 运行时
+          # 行为留 Windows GPU 真机确认（冒烟仅验 --help 可启动）。
+          cargo build --release -p subtitle_ocr --bin subtitle_ocr_directml --features ep-directml
+          if ($LASTEXITCODE -ne 0) { throw "cargo build directml failed" }
           Get-ChildItem target\release\*.exe | Where-Object { $_.Name -match 'subtitle_ocr|ocr-post|subtitle_finder' } | Select-Object Name, Length
 
       - name: smoke test (dll 完整性)
@@ -142,9 +153,10 @@ jobs:
           # opencv/ffmpeg dll 不在 exe 同目录, 需经 PATH 提供 (与 zip 平铺布局等效)
           $env:PATH = "C:\opencv5\opencv\build\x64\vc16\bin;$env:VCPKG_ROOT\installed\x64-windows\bin;$env:PATH"
           # ocr-post 等后处理 CLI 不在本 workflow 产物里（见 release-post-windows.yml）
-          $exes = @("subtitle_ocr", "subtitle_finder") | Where-Object {
+          $exes = @("subtitle_ocr", "subtitle_finder", "subtitle_ocr_directml") | Where-Object {
             ($_ -eq "subtitle_finder" -and "${{ github.event.inputs.upload_finder }}" -ne "false") -or
-            ($_ -eq "subtitle_ocr" -and "${{ github.event.inputs.upload_ocr }}" -ne "false")
+            ($_ -eq "subtitle_ocr" -and "${{ github.event.inputs.upload_ocr }}" -ne "false") -or
+            ($_ -eq "subtitle_ocr_directml" -and "${{ github.event.inputs.upload_directml }}" -ne "false")
           }
           foreach ($e in $exes) {
             & ".\target\release\$e.exe" --help *> $null
@@ -160,6 +172,7 @@ jobs:
           $bins = @()
           if ("${{ github.event.inputs.upload_ocr }}" -ne "false") { $bins += "subtitle_ocr" }
           if ("${{ github.event.inputs.upload_finder }}" -ne "false") { $bins += "subtitle_finder" }
+          if ("${{ github.event.inputs.upload_directml }}" -ne "false") { $bins += "subtitle_ocr_directml" }
           # opencv prebuilt + vcpkg ffmpeg 的全部 dll 平铺进每个 zip, 与 exe 同目录
           # (opencv_world500 + videoio ffmpeg/msmf 插件 + ffmpeg 库)
           $opencvBin = "C:\opencv5\opencv\build\x64\vc16\bin"
@@ -190,6 +203,10 @@ jobs:
           if ("${{ github.event.inputs.upload_finder }}" -ne "false") {
             gh release upload "${{ github.event.inputs.tag_finder }}" "$env:OUT_DIR\subtitle_finder-x86_64-pc-windows-msvc.zip" --clobber
             if ($LASTEXITCODE -ne 0) { throw "upload finder failed" }
+          }
+          if ("${{ github.event.inputs.upload_directml }}" -ne "false") {
+            gh release upload "${{ github.event.inputs.tag_ocr }}" "$env:OUT_DIR\subtitle_ocr_directml-x86_64-pc-windows-msvc.zip" --clobber
+            if ($LASTEXITCODE -ne 0) { throw "upload directml failed" }
           }
 
       - name: print sha256
