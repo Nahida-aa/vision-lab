@@ -89,6 +89,26 @@ graph TD
   - [ ] LocalDub `items.rs` 三个 spec：bin / linux_asset / windows_asset + sha256
   - [ ] `items.rs` / `input.rs` 的日志与提示文案（steps 侧经 ensure_bin 派生路径自动跟随）
 
+### OCR GPU 加速（WebGPU EP 实验，未排期）
+
+背景：本仓主力开发机为 AMD 780M iGPU（RADV Vulkan）——CUDA 无 NVIDIA、DirectML
+Windows-only、pyke 预编译无 ROCm，ORT 侧唯一现实的 GPU 路是 **WebGPU EP**（Dawn
+实现，后端 Vulkan/D3D12；`ort` 有 `webgpu` feature，pyke 有 Linux/Windows 预编译，
+ORT 1.28.0）。非空想依据：LocalDub 已在**本机**用 `onnxruntime-node` WebGPU EP
+（同为 Dawn）跑通 VoxCPM2（2 sessions，RTF ~4.2，见 LocalDub
+`docs/webgpu-oom.md`）。
+
+- [ ] `ep.rs` 加 `ExecutionBackend::WebGPU` + `ep-webgpu` feature 透传
+      （`ort::ep::WebGPU`；注意 dist.tsv 无 `directml,webgpu` / `cuda,webgpu`
+      组合变体——webgpu 只能单独开）
+- [ ] WebGPU 模式跳过 cls session：OCR 是 det/rec/cls 3 个长寿命 session，而
+      Dawn 实测约束为 **≥3 同时存活 session → 资源泄漏 → VK_ERROR_DEVICE_LOST**
+      （LocalDub `docs/webgpu-oom.md`，安全线 ≤2）；cls 本就「已加载未使用」，
+      裁掉后剩 det/rec 2 个，落在实测安全线内
+- [ ] 本机 bench 实测 780M 每帧耗时 vs CPU 基线（465ms/帧 @2fps，RTF 0.93）：
+      conv 密集的 det 模型在 iGPU 上未必占优，VoxCPM transformer WebGPU RTF 4.2
+      的先例说明不一定划算——两个结果（跑通测速 / 复现 device-lost）都可接受
+
 ## 抓图基础设施（crates/capturer）
 
 - 自研跨 compositor 抓图 crate，抽象 `Capturer` trait。
