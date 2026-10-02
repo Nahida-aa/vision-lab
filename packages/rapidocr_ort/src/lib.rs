@@ -21,12 +21,14 @@
 
 pub mod cls;
 pub mod det;
+pub mod ep;
 pub mod geometry_util;
 pub mod pipeline;
 pub mod preprocess;
 pub mod rec;
 pub mod util;
 
+pub use ep::ExecutionBackend;
 pub use geometry_util::points_range;
 pub use util::load_image;
 
@@ -117,15 +119,27 @@ pub struct OcrEngine {
 }
 
 impl OcrEngine {
-    /// 按预设套件构建引擎。
+    /// 按预设套件构建引擎（CPU 后端）。
     ///
     /// `model_dir` 为 `data/models/rapidocr` 所在目录（默认仓库根的 `data/models/rapidocr`）。
     pub fn from_profile(profile: ModelProfile, model_dir: &Path) -> Result<Self> {
+        Self::from_profile_with_backend(profile, model_dir, ExecutionBackend::Cpu)
+    }
+
+    /// 按预设套件构建引擎，并指定执行后端（CPU / CUDA / DirectML，见 [`ExecutionBackend`]）。
+    ///
+    /// GPU 后端要求二进制以对应 `ep-*` feature 构建（详见 [`crate::ep`]）；
+    /// 未启用时硬报错而非静默回退 CPU，避免基准测试产出假 GPU 数据。
+    pub fn from_profile_with_backend(
+        profile: ModelProfile,
+        model_dir: &Path,
+        backend: ExecutionBackend,
+    ) -> Result<Self> {
         let (det, rec, cls, dict) = profile.paths();
         let dir = model_dir.to_path_buf();
-        let det = build_session(&dir.join(det))?;
-        let rec = build_session(&dir.join(rec))?;
-        let cls = build_session(&dir.join(cls))?;
+        let det = build_session(&dir.join(det), backend)?;
+        let rec = build_session(&dir.join(rec), backend)?;
+        let cls = build_session(&dir.join(cls), backend)?;
         let vocab = load_vocab(&dir.join(dict))
             .with_context(|| format!("加载字典失败: {}", dir.join(dict).display()))?;
 
@@ -314,9 +328,10 @@ impl OcrEngine {
 // 引擎构建辅助
 // ===========================================================================
 
-/// 构建 ONNX Session（文件存在性已校验）。
-fn build_session(path: &Path) -> Result<Session> {
-    Session::builder()?
+/// 构建 ONNX Session（文件存在性已校验），应用指定执行后端。
+fn build_session(path: &Path, backend: ExecutionBackend) -> Result<Session> {
+    let mut builder = backend.apply(Session::builder()?)?;
+    builder
         .commit_from_file(path)
         .with_context(|| format!("加载 ONNX 模型失败: {}", path.display()))
 }

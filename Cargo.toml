@@ -69,7 +69,9 @@ image = "0.25"
 # clang-runtime: 强制绑定生成走子进程而非线程, 避免 clang-sys 因树内其它 crate
 # 开启 runtime 导致多线程 load libclang 时 panic (opencv-rust TROUBLESHOOTING #8)。
 opencv = { version = "0.100.0", default-features = false, features = ["imgproc", "videoio", "clang-runtime"] }
-ort = "2.0.0-rc.13"
+# ort 默认含 api-27 + download-binaries 静态链接（VS2022 STL 符号，VS2019 链不
+# 动）；统一关默认，由 rapidocr_ort 的 feature 层级还原（见该包 [features]）。
+ort = { version = "2.0.0-rc.13", default-features = false }
 burn = "0.21.0"
 util = { path = "packages/util" }
 glam = "0.33.2"
@@ -82,13 +84,19 @@ ffmpeg-next = "9.0.0"
 mimalloc = { version = "0.1", default-features = false }
 # PP-OCR det/rec/cls 引擎（onnxruntime 推理 + DB 后处理）。
 # 跨包共享，统一走 workspace，改 path/版本只动这一处。
-rapidocr_ort = { path = "packages/rapidocr_ort" }
+#
+# default-features = false：ort 默认含 api-27 + download-binaries 静态链接，
+# 其预编译静态库按 VS2022 STL 构建（__std_max_8u 等 SIMD 符号），VS2019 (14.29)
+# 链接器无法解析。workspace 统一关默认，由 rapidocr_ort 的 feature 层级还原
+# 两种构建形态（静态 / 动态，见 packages/rapidocr_ort/Cargo.toml [features]）；
+# 消费方 ocr_layout / ocr_agent 显式 `features = ["default"]` 保持常规形态。
+rapidocr_ort = { path = "packages/rapidocr_ort", default-features = false }
 ocr_types = { path = "packages/ocr_types" }
 subtitle = { path = "packages/subtitle" }
 subtitle_ocr_types = { path = "packages/subtitle_ocr_types" }
 subtitle_ocr_post = { path = "packages/subtitle_ocr_post" }
 subtitle_finder = { path = "packages/subtitle_finder" }
-subtitle_ocr = { path = "packages/subtitle_ocr" }
+subtitle_ocr = { path = "packages/subtitle_ocr", default-features = false }
 # 纯 Rust 二维多边形几何（凸包 / 旋转卡尺最小外接矩形 / 框角点 / 多边形偏移）。
 # 供 rapidocr_ort 的 det 后处理复刻 cpp 的 minAreaRect + unclip 几何。
 geometry = { path = "packages/geometry" }

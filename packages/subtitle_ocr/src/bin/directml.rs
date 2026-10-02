@@ -1,17 +1,22 @@
-//! 命令行：`subtitle_ocr <image>` 或 `subtitle_ocr --dir <dir> ...`
+//! 专用 bin：`directml <image>` 或 `directml --dir <dir> ...`
 //!
-//! 纯感知 OCR 工具，对标 cpp 的 `ocr_pipeline.cpp`：输出 JSON 数组，
-//! 每个元素含 `text` / `text_confidence` / `boxes` / `timestamp`。
+//! 字幕 OCR 的 **DirectML（GPU）执行后端专用 CLI**，与主 bin `subtitle_ocr`
+//! （CPU）**不共用旗标**：后端差异在二进制层面分开，而不是挂在主 bin 的参数上。
+//! 两者旗标集一致、执行流程共用（见 `crate::cli`），仅溯源 meta 不同
+//! （engine `ort-rust-directml` / device `Directml`）。
 //!
-//! 本 bin 固定 **CPU 执行后端**；DirectML 有专用 bin（`src/bin/directml.rs`），
-//! 两者不共用旗标——后端差异在二进制层面分开，而不是挂在旗标上。
+//! 构建与运行前提（见 Cargo.toml / rapidocr_ort [features] 注释）：
+//! - 本 bin 无条件编译（普通 cargo build 即有产物）；但**实际执行** DirectML
+//!   需以 `ep-directml` feature 构建，缺 feature 的产物在运行时建引擎一步
+//!   硬报错（rapidocr_ort ep.rs），不会静默回退 CPU；
+//! - VS2019 工具链下用 `--no-default-features` 走 ort 动态链接（运行时的
+//!   `onnxruntime.dll` 需含 DirectML EP，如 MS 官方 DirectML nuget）；
+//! - 多适配器机器用 `ORT_EP_DEVICE_ID` 指定 GPU 序号（0 未必是独显，本机
+//!   实测 0 = Todesk 虚拟适配器、1 = RTX 3060，详见
+//!   docs/benchmark-cpu-vs-gpu-windows.md）。
 //!
-//! 不含任何耗时字段——推理耗时是旁路观测数据，由调用方自行计时（CLI 在
-//! `ocr_image` 调用前后 `Instant::now()` 测量，经 tracing 输出；benchmark 同理）。
-//! 不污染 stdout 的 JSON 数组。
-//!
-//! 本 CLI 只做「逐图/批量 OCR」，不输出时间轴、不做帧合并——带时间戳的字幕段
-//! 由知道视频结构的上游（自行补 `start`/`end` 后调用 `merge-frames`）负责。
+//! 输出与主 bin 同形状（JSON 数组：`text` / `text_confidence` / `boxes` /
+//! `timestamp`），仅执行设备不同。
 
 use anyhow::Result;
 use clap::Parser;
@@ -21,8 +26,8 @@ use subtitle_ocr::{ExecutionBackend, OcrDevice};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "subtitle_ocr",
-    about = "字幕 OCR（CPU 执行后端；DirectML 走独立的 directml bin）"
+    name = "directml",
+    about = "字幕 OCR（DirectML/GPU 执行后端专用；CPU 走主 bin subtitle_ocr）"
 )]
 struct Cli {
     /// 模型套件：v3 / v4 / v6-tiny / v6-medium
@@ -99,8 +104,8 @@ fn main() -> Result<()> {
         full_frame: c.full_frame,
         warp_crop: c.warp_crop,
         out: c.out,
-        execution_backend: ExecutionBackend::Cpu,
-        engine: "ort-rust",
-        device: OcrDevice::Cpu,
+        execution_backend: ExecutionBackend::DirectML,
+        engine: "ort-rust-directml",
+        device: OcrDevice::Directml,
     })
 }

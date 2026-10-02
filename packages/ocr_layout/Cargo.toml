@@ -13,7 +13,7 @@ path = "src/lib.rs"
 # 纯颜色连通域原语（控件边界主信号）。
 color_analysis = { path = "../color_analysis" }
 # 文字识别（控件标签锚点，辅助信号）。
-rapidocr_ort = { workspace = true }
+rapidocr_ort = { workspace = true, features = ["default"] }
 # 图像读取与 RGB 张量构造（喂给 rapidocr 的 detect）。
 image.workspace = true
 # ndarray：构造 HWC u8 张量传给 OcrEngine::detect（版本须与 rapidocr_ort 锁定的 0.17 一致）。

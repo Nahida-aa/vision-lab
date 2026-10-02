@@ -12,9 +12,14 @@
 use anyhow::Result;
 use ndarray::{Array3, s};
 use rapidocr_ort::{ModelProfile, OcrEngine};
+// ExecutionBackend 公开转发：cli::RunArgs（公共结构体）的字段用到它，
+// 各 bin 经本包路径引用（rapidocr_ort 是私有依赖细节）。
+pub use rapidocr_ort::ExecutionBackend;
 use std::path::PathBuf;
 
 // ── 内部模块 ──
+/// 各 CLI bin（主 bin / directml 专用 bin）共用的执行流程（旗标不共用，见模块注释）。
+pub mod cli;
 pub(crate) mod geometry;
 pub mod util;
 
@@ -54,6 +59,9 @@ pub struct OcrOptions {
     pub use_nms: bool,
     pub text_confidence_threshold: f32,
     pub use_warp_crop: bool,
+    /// 推理执行后端（CPU / CUDA / DirectML）。GPU 后端要求二进制以对应
+    /// `ep-*` feature 构建（见 `rapidocr_ort::ep`），未启用时硬报错。
+    pub execution_backend: ExecutionBackend,
 }
 
 impl Default for OcrOptions {
@@ -64,6 +72,7 @@ impl Default for OcrOptions {
             use_nms: true,
             text_confidence_threshold: 0.5,
             use_warp_crop: false,
+            execution_backend: ExecutionBackend::default(),
         }
     }
 }
@@ -89,8 +98,8 @@ impl SubtitleOcr {
         model_dir: &std::path::Path,
         opts: OcrOptions,
     ) -> Result<Self> {
-        let engine =
-            OcrEngine::from_profile(profile, model_dir)?.with_warp_crop(opts.use_warp_crop);
+        let engine = OcrEngine::from_profile_with_backend(profile, model_dir, opts.execution_backend)?
+            .with_warp_crop(opts.use_warp_crop);
         Ok(Self { engine, opts })
     }
 

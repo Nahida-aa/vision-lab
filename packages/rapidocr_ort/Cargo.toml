@@ -5,6 +5,22 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# GPU 执行后端（编译期开关；运行时经 `--ep` 选择，见 src/ep.rs）。默认仅 CPU。
+# ort-sys 按 feature 拉取对应预编译 ORT：开 cuda 会要求运行时有 CUDA/cuDNN DLL，
+# directml 在 Windows 10+ 无额外依赖。给下游透传：subtitle_ocr 构建时用
+# `--features rapidocr_ort/ep-cuda`。
+#
+# ort-default：还原 ort 的默认 features（download-binaries 静态链接 + api-27），
+# 是 CI / VS2022 工具链的常规形态。VS2019 工具链本机构建时，用
+# `--no-default-features` 跳过它：此时只请求 ORT API 17，且配合环境变量
+# ORT_LIB_LOCATION + ORT_PREFER_DYNAMIC_LINK=1 改为动态链接（指向含 onnxruntime
+# 导入库的 DLL 目录，如 MS 官方 DirectML nuget），绕开静态库的 STL 符号依赖。
+[features]
+default = ["ort-default"]
+ort-default = ["ort/default"]
+ep-cuda = ["ort/cuda"]
+ep-directml = ["ort/directml"]
+
 # 既是库（供 ui_probe 等上层调用）也是二进制（命令行直接对图片跑 OCR）。
 [lib]
 name = "rapidocr_ort"
@@ -20,7 +36,10 @@ ocr_types = { workspace = true }
 # ONNX Runtime 推理（workspace 已 pin rc.13）。开 ndarray feature 以便直接吃
 # ndarray::Array 构造输入张量。模型权重在 data/models/rapidocr 下，通过 --model 运行
 # 时参数选择，不条件编译。
-ort = { workspace = true, features = ["ndarray"] }
+#
+# workspace 已统一 default-features = false（原因见根 Cargo.toml），本包经
+# [features] 层级还原两种构建形态。
+ort = { workspace = true, features = ["ndarray", "std"] }
 # 图像读取 + 预处理（Resize/Normalize/CHW 排列）。
 image.workspace = true
 # 矩阵/张量：版本必须与 ort(rc.13) 内部锁定的 ndarray 0.17 一致，否则 Array

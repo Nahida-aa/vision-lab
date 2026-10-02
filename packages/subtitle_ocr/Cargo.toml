@@ -23,6 +23,21 @@ path = "src/lib.rs"
 name = "subtitle_ocr"
 path = "src/main.rs"
 
+# DirectML（GPU）执行后端专用 bin：与主 bin 不共用旗标（后端差异在二进制层面
+# 分开）。无条件编译（普通 cargo build 也有产物）；实际执行 DirectML 需要开启
+# ep-directml feature 构建，缺 feature 的产物在运行时建引擎一步硬报错（见
+# rapidocr_ort ep.rs），不会静默回退 CPU。
+[[bin]]
+name = "directml"
+path = "src/bin/directml.rs"
+
+[features]
+# 还原 rapidocr_ort 默认（ort 静态链接 + api-27，CI/VS2022 常规形态）；
+# VS2019 本机构建用 `--no-default-features` 关掉，转 ort 动态链接。
+default = ["rapidocr_ort/default"]
+# GPU 执行后端（directml bin 依赖此 feature；透传 rapidocr_ort → ort/directml）。
+ep-directml = ["rapidocr_ort/ep-directml"]
+
 [dependencies]
 ocr_types = { workspace = true }
 # 字幕 OCR 产物/管线类型（FrameResult/OcrFrames*/MergeFrames*/工具函数等）。
@@ -30,6 +45,9 @@ subtitle_ocr_types = { workspace = true }
 subtitle_ocr_post = { workspace = true }
 # OCR 引擎（det/rec/cls 推理 + 模型加载 + 字典），本包只做字幕专属逻辑。
 # 纯感知层（合并逻辑已迁入本包的 ocr_post::merge_frames / merge-frames CLI）。
+# workspace 已默认关 features；本包 default 里还原 rapidocr_ort 默认，VS2019
+# 工具链下可用 `--no-default-features` 切到 ort 动态链接形态（见 rapidocr_ort
+# [features] 注释）。
 rapidocr_ort = { workspace = true }
 # 复用 rapidocr_ort 同款向量的按分量 min/max（SSE），与 polygon_metrics 一致。
 glam.workspace = true
