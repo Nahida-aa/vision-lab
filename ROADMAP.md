@@ -63,11 +63,31 @@ graph TD
 
 ## 下一步
 
-细项行动清单（可勾选、按目标分组）见 [todo.md](./todo.md)，本文件只保留大方向与
-架构，避免路线图被易过期的长清单拖垮。
+细项行动清单（可勾选、按功能目标分组）见 [todo.md](./todo.md)，本文件保留大方向、
+架构与**跨仓基建**的树状待办，避免路线图被易过期的长清单拖垮。
 
 概要：目标 1 的 Rust 实现已落地，收尾在 v3 掉字调参、v6 rec 预处理、cls 接入、
 三实现横比基准；目标 2/3 在 ui_probe 回灌闭环、opencv 视觉层、可选 yolo 控件检测。
+
+### 发布链路（跨仓：vision-lab 发布 → LocalDub 消费，未排期）
+
+- [ ] 装后冒烟：下载解压后跑一次子进程，验证二进制在本机真的能加载执行。
+      sha256 只证明字节与 pin 的一致，不证明运行时兼容（缺 dll/so、glibc 过旧、
+      指令集不支持、被杀软隔离）——Windows 现状完全没有运行时检查，Linux 只有
+      ldd 静态分析，且 CI 的 smoke test 只证明 CI 机器能跑。
+  - [ ] LocalDub `ensure_release_bin`：解压完成后短超时 spawn `bin --help`，
+        exit 0 才写版本戳；失败报「冒烟失败」并删除产物，防止坏二进制被 stamp 锁定
+  - [ ] 用 `--help` 而非 `-v`：clap 的 `--help` 恒存在，对 LocalDub 当前 pin 的
+        历史 release 二进制（subtitle-ocr-v0.1.1 等）同样有效；`--version` 需
+        bin 侧支持且已发布资产不可变，无法对历史版本追加
+  - [ ] （可选）vision-lab 三个 bin 补 `#[command(version)]`（下个 release 起生效），
+        供 LocalDub 未来解析 `--version` 展示版本号；版本事实以版本戳 tag 为准
+- [ ] 下次 bump release tag 时翻转 LocalDub ReleaseBinSpec 资产名——09dc6ac 起
+      bin 名已下划线（subtitle_ocr / subtitle_finder / subtitle_ocr_post），未来
+      资产名形如 `subtitle_ocr_post-x86_64-pc-windows-msvc.zip`；历史 tag
+      （subtitle-ocr-v0.1.1 等）资产名不可变，故与新 tag 同步改：
+  - [ ] LocalDub `items.rs` 三个 spec：bin / linux_asset / windows_asset + sha256
+  - [ ] `items.rs` / `input.rs` 的日志与提示文案（steps 侧经 ensure_bin 派生路径自动跟随）
 
 ## 抓图基础设施（crates/capturer）
 
