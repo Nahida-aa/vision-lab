@@ -92,6 +92,7 @@ fn main() {
         use_nms: true,
         text_confidence_threshold: 0.5,
         use_warp_crop: false,
+        ..Default::default()
     };
     let mut ocr = SubtitleOcr::from_profile(
         rapidocr_ort::ModelProfile::V4,

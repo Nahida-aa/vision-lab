@@ -1,10 +1,12 @@
 //! 推理执行后端（Execution Provider）选择：CPU / CUDA / DirectML。
 //!
-//! ## 设计：编译期 feature × 运行时选择
+//! ## 设计：编译期 feature × 调用方选择
 //!
 //! ONNX Runtime 的 EP 支持是**编译进二进制**的（ort crate 的 `cuda` / `directml`
-//! feature 决定 ort-sys 拉取哪个预编译库），而用哪个后端是**运行时**决定的
-//! （各 CLI 的 `--ep`）。本 crate 暴露两个 feature 把两者接起来：
+//! feature 决定 ort-sys 拉取哪个预编译库）；用哪个后端由**调用方**选择，但 CLI 层
+//! 不暴露后端旗标——后端差异在二进制层面分开：主 bin `subtitle_ocr` 固定 CPU，
+//! DirectML 走专用 bin `directml`；库 API（`OcrOptions::execution_backend`）供
+//! 编程调用方选择。本 crate 暴露两个 feature 把两者接起来：
 //!
 //! - `ep-cuda` = `ort/cuda`：预编译 ORT 带 CUDA EP；运行时还需 CUDA/cuDNN 的
 //!   DLL 在 `PATH`（cudart / cublas / cufft / curand / cudnn，可经 pip 的
@@ -15,17 +17,18 @@
 //!
 //! ## 失败语义：宁可硬失败，不静默回退
 //!
-//! - `--ep cuda` 跑在**没编译** CUDA 支持的二进制上 → 硬错误（而非静默回退
-//!   CPU），否则基准测试会出现「以为在测 GPU、实际是 CPU」的假数据。
-//! - `--ep cuda` 跑在**编译了** CUDA 但运行时缺 DLL 的机器上 → ORT 初始化 EP
-//!   失败时会打 warning 并回退 CPU 执行（这是 ORT 层行为，拦截不了）；因此
-//!   基准/冒烟时必须核对进程能报出实际使用的 EP（或核对 GPU 占用/耗时量级）。
+//! - 请求 CUDA / DirectML 后端但二进制**没编译**对应 `ep-*` feature → 硬错误
+//!   （而非静默回退 CPU），否则基准测试会出现「以为在测 GPU、实际是 CPU」的
+//!   假数据。
+//! - 请求的后端**已编译**但运行时缺 DLL → ORT 初始化 EP 失败时会打 warning 并
+//!   回退 CPU 执行（这是 ORT 层行为，拦截不了）；因此基准/冒烟时必须核对进程能
+//!   报出实际使用的 EP（或核对 GPU 占用/耗时量级）。
 
 use anyhow::Result;
 use clap::ValueEnum;
 use ort::session::builder::SessionBuilder;
 
-/// 推理执行后端。各 CLI `--ep` 的取值，默认 CPU。
+/// 推理执行后端（库 API；CLI 按二进制固定后端，不暴露旗标），默认 CPU。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, ValueEnum)]
 pub enum ExecutionBackend {
     /// CPU（默认；ONNX Runtime 内置，无需额外 feature）。

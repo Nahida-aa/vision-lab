@@ -808,6 +808,7 @@ fn run_benchmark_sf(
     subtitle_only: bool,
     threads: Option<usize>,
     warp_crop: bool,
+    bin: &Path,
 ) {
     let vpath = video_path();
     let out_dir = tmp_dir().join(format!("sf-frames-{}", label));
@@ -827,14 +828,14 @@ fn run_benchmark_sf(
     let frame_files = list_frame_files(&out_dir);
     println!("  saved {} 关键帧到 {}", frame_files.len(), out_dir.display());
 
-    // 批量 OCR（sf 路径固定用默认 CPU 主 bin）。
+    // 批量 OCR（sf 是关键帧路径，无 GPU 对照，固定 CPU 主 bin；--rust-bin 照常生效）。
     let results = ocr_dir_rust(
         &out_dir,
         Some(text_score),
         subtitle_only,
         threads,
         warp_crop,
-        &rust_bin(None),
+        bin,
     );
     let mut total_ms = 0.0f64;
     for r in &results {
@@ -1206,7 +1207,8 @@ fn main() {
         // subtitle_finder 关键帧路径（对比传统抽帧）：用独立 label，不用 fps。
         "sf" => {
             let sf_label = format!("sf-{}", text_score);
-            run_benchmark_sf(&sf_label, text_score, subtitle_only, threads, warp_crop);
+            let bin = rust_bin(rust_bin_override.as_deref());
+            run_benchmark_sf(&sf_label, text_score, subtitle_only, threads, warp_crop, &bin);
         }
         other => {
             eprintln!("未知实现: {}", other);
