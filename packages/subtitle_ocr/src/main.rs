@@ -3,7 +3,7 @@
 //! 纯感知 OCR 工具，对标 cpp 的 `ocr_pipeline.cpp`：输出 JSON 数组，
 //! 每个元素含 `text` / `text_confidence` / `boxes` / `timestamp`。
 //!
-//! 本 bin 固定 **CPU 执行后端**；DirectML 有专用 bin（`src/bin/directml.rs`），
+//! 本 bin 固定 **CPU 执行后端**；DirectML 有专用 bin（`src/bin/subtitle_ocr_directml.rs`），
 //! 两者不共用旗标——后端差异在二进制层面分开，而不是挂在旗标上。
 //!
 //! 不含任何耗时字段——推理耗时是旁路观测数据，由调用方自行计时（CLI 在

@@ -1,4 +1,5 @@
-//! subtitle_ocr 各 CLI bin（主 bin `subtitle_ocr` / DirectML 专用 bin `directml`）
+//! subtitle_ocr 各 CLI bin（主 bin `subtitle_ocr` / DirectML 专用 bin
+//! `subtitle_ocr_directml`）
 //! 共用的执行流程。
 //!
 //! 「共用」的边界：**命令行旗标与二进制形态不共用**——CPU 主 bin 与 DirectML

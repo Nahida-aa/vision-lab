@@ -1,8 +1,9 @@
-//! 专用 bin：`directml <image>` 或 `directml --dir <dir> ...`
+//! 专用 bin：`subtitle_ocr_directml <image>` 或 `subtitle_ocr_directml --dir <dir> ...`
 //!
 //! 字幕 OCR 的 **DirectML（GPU）执行后端专用 CLI**，与主 bin `subtitle_ocr`
-//! （CPU）**不共用旗标**：后端差异在二进制层面分开，而不是挂在主 bin 的参数上。
-//! 两者旗标集一致、执行流程共用（见 `crate::cli`），仅溯源 meta 不同
+//! （CPU）**不共用旗标**：后端差异在二进制层面分开，而不是挂在主 bin 的参数上
+//! （bin 名带 `subtitle_ocr_` 前缀：避免泛化的 `directml` 与将来其他包的 GPU
+//! 版撞名）。两者旗标集一致、执行流程共用（见 `crate::cli`），仅溯源 meta 不同
 //! （engine `ort-rust-directml` / device `Directml`）。
 //!
 //! 构建与运行前提（见 Cargo.toml / rapidocr_ort [features] 注释）：
@@ -26,7 +27,7 @@ use subtitle_ocr::{ExecutionBackend, OcrDevice};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "directml",
+    name = "subtitle_ocr_directml",
     about = "字幕 OCR（DirectML/GPU 执行后端专用；CPU 走主 bin subtitle_ocr）"
 )]
 struct Cli {

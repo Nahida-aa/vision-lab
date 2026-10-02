@@ -28,14 +28,14 @@ path = "src/main.rs"
 # ep-directml feature 构建，缺 feature 的产物在运行时建引擎一步硬报错（见
 # rapidocr_ort ep.rs），不会静默回退 CPU。
 [[bin]]
-name = "directml"
-path = "src/bin/directml.rs"
+name = "subtitle_ocr_directml"
+path = "src/bin/subtitle_ocr_directml.rs"
 
 [features]
 # 还原 rapidocr_ort 默认（ort 静态链接 + api-27，CI/VS2022 常规形态）；
 # VS2019 本机构建用 `--no-default-features` 关掉，转 ort 动态链接。
 default = ["rapidocr_ort/default"]
-# GPU 执行后端（directml bin 依赖此 feature；透传 rapidocr_ort → ort/directml）。
+# GPU 执行后端（subtitle_ocr_directml bin 依赖此 feature；透传 rapidocr_ort → ort/directml）。
 ep-directml = ["rapidocr_ort/ep-directml"]
 
 [dependencies]

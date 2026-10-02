@@ -14,7 +14,7 @@ DirectML 在 RTX 3060 上比同机 CPU 快 **5.4~5.9×**，且**输出与 CPU �
 | ---- | -------- | ---------: | ------: | ---: |
 | run 1 | CPU（主 bin `subtitle_ocr`） | 310.3 s | 910 ms | 1.825 |
 | run 2 | CPU | 286.8 s | 841 ms | 1.687 |
-| run 1 | DirectML（专用 bin `directml`，RTX 3060） | 52.5 s | 154 ms | 0.309 |
+| run 1 | DirectML（专用 bin `subtitle_ocr_directml`，RTX 3060） | 52.5 s | 154 ms | 0.309 |
 | run 2 | DirectML | 52.9 s | 155 ms | 0.311 |
 
 加速比（同序号运行相除）：5.91× / 5.43×。CPU 两轮波动 7.6%（在 README 记录的
@@ -62,17 +62,17 @@ DirectML 在 RTX 3060 上比同机 CPU 快 **5.4~5.9×**，且**输出与 CPU �
 
 ```bash
 # 1. 构建（VS2019 工具链须走 ort 动态链接形态，见「构建差异」）。
-#    产物两个 exe：subtitle_ocr.exe（CPU 主 bin）+ directml.exe（DirectML 专用
+#    产物两个 exe：subtitle_ocr.exe（CPU 主 bin）+ subtitle_ocr_directml.exe（DirectML 专用
 #    bin，无条件编译；实际跑 DirectML 需开 ep-directml feature，缺 feature 的
 #    产物运行时硬报错）。
 export ORT_LIB_LOCATION=<含 onnxruntime.lib 的目录>   # MS DirectML nuget 解包
 export ORT_PREFER_DYNAMIC_LINK=1
-cargo build --release -p subtitle_ocr --bin subtitle_ocr --bin directml \
+cargo build --release -p subtitle_ocr --bin subtitle_ocr --bin subtitle_ocr_directml \
   --no-default-features --features ep-directml
 cargo build --release -p bench_subtitle_ocr --bin bench --no-default-features
 
 # 2. 跑基准（exe 须放在仓库根下两级目录内，模型目录按 exe 位置解析；
-#    --ep 选后端 → 自动选 exe：cpu → subtitle_ocr，directml → 同目录 directml.exe，
+#    --ep 选后端 → 自动选 exe：cpu → subtitle_ocr，directml → 同目录 subtitle_ocr_directml.exe，
 #    也可 --directml-bin 显式指定）
 ./target/release/bench.exe --impl rust --dir --warp-crop --ep cpu \
   --rust-bin packages/tmp/subtitle_ocr.exe
@@ -90,7 +90,7 @@ CPU 与 DirectML 不共用 CLI 旗标——后端差异在**二进制层面**分
 | bin | 后端 | 编译条件 | meta 溯源 |
 | --- | ---- | -------- | --------- |
 | `subtitle_ocr` | CPU（固定，无 GPU 旗标） | 默认 | engine `ort-rust` / device `Cpu` |
-| `directml` | DirectML（固定） | 无条件编译；跑 GPU 需 `--features ep-directml`，缺 feature 运行时硬报错 | engine `ort-rust-directml` / device `Directml` |
+| `subtitle_ocr_directml` | DirectML（固定） | 无条件编译；跑 GPU 需 `--features ep-directml`，缺 feature 运行时硬报错 | engine `ort-rust-directml` / device `Directml` |
 
 两个 bin 的旗标集一致，解析后的执行流程共用（`subtitle_ocr::cli` 模块：
 建引擎 → 建条目 → 逐条 OCR → 落盘/打印），差异收敛在 `RunArgs` 的三个溯源

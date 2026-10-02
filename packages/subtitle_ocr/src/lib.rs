@@ -18,7 +18,7 @@ pub use rapidocr_ort::ExecutionBackend;
 use std::path::PathBuf;
 
 // ── 内部模块 ──
-/// 各 CLI bin（主 bin / directml 专用 bin）共用的执行流程（旗标不共用，见模块注释）。
+/// 各 CLI bin（主 bin / subtitle_ocr_directml 专用 bin）共用的执行流程（旗标不共用，见模块注释）。
 pub mod cli;
 pub(crate) mod geometry;
 pub mod util;

@@ -5,7 +5,7 @@
 //! ONNX Runtime 的 EP 支持是**编译进二进制**的（ort crate 的 `cuda` / `directml`
 //! feature 决定 ort-sys 拉取哪个预编译库）；用哪个后端由**调用方**选择，但 CLI 层
 //! 不暴露后端旗标——后端差异在二进制层面分开：主 bin `subtitle_ocr` 固定 CPU，
-//! DirectML 走专用 bin `directml`；库 API（`OcrOptions::execution_backend`）供
+//! DirectML 走专用 bin `subtitle_ocr_directml`；库 API（`OcrOptions::execution_backend`）供
 //! 编程调用方选择。本 crate 暴露两个 feature 把两者接起来：
 //!
 //! - `ep-cuda` = `ort/cuda`：预编译 ORT 带 CUDA EP；运行时还需 CUDA/cuDNN 的
