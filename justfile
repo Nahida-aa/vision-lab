@@ -18,6 +18,14 @@ default:
 rename-strip dir extra_args="":
     node scripts/rename_strip_prefix.mjs {{dir}} {{extra_args}}
 
+# ---- OpenCV 5.0.0 官方 prebuilt 一键准备（Windows 开发环境；Linux 走 pkg-config 无需此步） ----
+# 下载（sha256 pin 校验）→ 解压到 C:\opencv5 → 打印/写入（--apply）opencv crate 探测
+# 所需 env，版本与路径对齐 release-windows.yml，使开发者环境 == CI 环境 == 发布环境。
+# 用法：just setup-opencv [--apply]          # --apply: setx 持久化 env
+#   extra-args 透传给脚本：--dest / --base-url（镜像）/ --from（离线归档）/ --force
+setup-opencv *extra_args:
+    node scripts/setup_opencv.mjs {{extra_args}}
+
 # ---- 统合后处理管线：一条命令串起 adjust-box → filter-box → merge → adjust-segment → filter-segment ----
 # 用法：just ocr-post [frames] [out] [video_height] [threshold] [stop_at]
 # 输入 frames（逐帧 OCR JSON，subtitle_ocr --out 产出）；画面高度取 frames 的
