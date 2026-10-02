@@ -643,7 +643,8 @@ pub fn extract_frames(video: &Path, out_dir: &Path, fps: f64) -> (f64, u64, f64)
             video.to_str().unwrap(),
             "-vf",
             &format!("select='not(mod(n,{}))'", step),
-            "-vsync",
+            // ffmpeg 8 移除了 -vsync（deprecated 自 5.x），等价新旗标为 -fps_mode vfr。
+            "-fps_mode",
             "vfr",
             "-qscale:v",
             "2",
