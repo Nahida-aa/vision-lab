@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bench_subtitle_ocr::{
+use bench_subtitle_ocr::{probe_video, 
     align_segments, extract_frames, list_frame_files, merge_frames, normalize_for_cer, compute_cer,
     repo_root, AlignReport, FrameResult, TimedText,
 };
@@ -243,7 +243,7 @@ fn rust_bin(override_bin: Option<&Path>) -> PathBuf {
 /// confidence 的一个作为该帧文本（丢弃 box，与 cpp 路径行为一致）。
 ///
 /// `bin` 由调用方按 `--ep` 选好：cpu → 主 bin `subtitle_ocr`，directml → 专用
-/// bin `directml`（后端差异在二进制层面分开，CLI 无共用旗标，无需向子进程传）。
+/// bin `subtitle_ocr_directml`（后端差异在二进制层面分开，CLI 无共用旗标，无需向子进程传）。
 fn ocr_frame_rust(
     frame: &Path,
     text_score: Option<f64>,
@@ -357,14 +357,28 @@ fn run_benchmark_cpp(
     let vpath = video_path();
     let out_dir = tmp_dir().join(format!("frames-{}", label));
     std::fs::create_dir_all(&out_dir).unwrap();
+    let mut frame_files = list_frame_files(&out_dir);
+    // 同 rust 路径：有帧复用，无帧才抽；帧名同为 ms（cpp 驱动按序枚举，
+    // 时间戳由本驱动按索引覆盖，文件名数值不参与）。
+    let (duration_s, step, src_fps) = if frame_files.is_empty() {
+        println!("  extracting frames...");
+        extract_frames(&vpath, &out_dir, fps)
+    } else {
+        println!(
+            "  reusing existing frames: {} ({} 帧)",
+            out_dir.display(),
+            frame_files.len()
+        );
+        let (duration_s, src_fps) = probe_video(&vpath);
+        let step = (src_fps / fps).round().max(1.0) as u64;
+        (duration_s, step, src_fps)
+    };
+    frame_files = list_frame_files(&out_dir);
+    frame_files = list_frame_files(&out_dir);
 
     println!("\n=== OCR Benchmark: {} (fps={}, engine=ort-cpp, mode={}, threads={}) ===",
         label, fps, if use_dir { "--dir" } else { "single-frame" },
         threads.map(|n| n.to_string()).unwrap_or_else(|| "default".into()));
-    println!("  extracting frames...");
-    let (duration_s, step, src_fps) = extract_frames(&vpath, &out_dir, fps);
-    let frame_files = list_frame_files(&out_dir);
-
     // 调用 cpp：--dir 批量 or 逐帧单帧（由 use_dir 控制，而非拆成两个 runner）
     let mut frame_results: Vec<FrameResult> = Vec::new();
     let mut total_ms = 0.0f64;
@@ -555,23 +569,7 @@ fn run_benchmark_cpp(
     );
     print_alignment(&align);
 
-    // 清理抽帧目录（对齐 runBenchmarkCommon 的 rm -rf frameDir）
-    let _ = std::fs::remove_dir_all(&out_dir);
-}
-
-/// 把抽帧目录的 `frame_%05d.jpg` 重命名成 rust `--dir` 的 `ms` 命名约定
-/// （时间 = 序号 × 步长 / 源帧率，毫秒，零填充定宽保持排序稳定）。
-///
-/// rust CLI 的 `--dir` 按文件名解析时间戳，`frame_00001.jpg` 不符合 `ms`/`ms_ms`
-/// 格式会直接报错；cpp/py 驱动只按文件名排序枚举，不受重命名影响。
-fn rename_frames_to_ms(dir: &Path, step: u64, src_fps: f64) -> std::io::Result<()> {
-    let files = list_frame_files(dir);
-    for (i, f) in files.iter().enumerate() {
-        let ms = (((i as f64) * (step as f64)) / src_fps * 1000.0).round() as u64;
-        let new = dir.join(format!("{:07}.jpg", ms));
-        std::fs::rename(f, &new)?;
-    }
-    Ok(())
+    // 抽帧目录保留复用（gitignored），要重抽删除该目录即可。
 }
 
 /// 与 `run_benchmark_cpp` 完全对称，仅把 OCR 调用换成 rust 实现
@@ -579,7 +577,7 @@ fn rename_frames_to_ms(dir: &Path, step: u64, src_fps: f64) -> std::io::Result<(
 /// 帧抽取、合并、CER、时序对齐、summary 复用同一套代码，保证两实现可横比。
 ///
 /// `bin` 由调用方按 `--ep` 选定：cpu → 主 bin `subtitle_ocr`，directml → 专用
-/// bin `directml`（后端差异在二进制层面分开，CLI 无共用旗标）。
+/// bin `subtitle_ocr_directml`（后端差异在二进制层面分开，CLI 无共用旗标）。
 fn run_benchmark_rust(
     label: &str,
     fps: f64,
@@ -593,10 +591,24 @@ fn run_benchmark_rust(
 ) {
     let vpath = video_path();
     let out_dir = tmp_dir().join(format!("frames-{}", label));
-    // 先清残留再抽帧：上次异常中断（如 Ctrl-C / kill）会留下旧帧，与本次
-    // 重命名后的 ms 文件名混在一起，导致 --dir 识别到双份帧、CER 被污染。
-    let _ = std::fs::remove_dir_all(&out_dir);
     std::fs::create_dir_all(&out_dir).unwrap();
+    let mut frame_files = list_frame_files(&out_dir);
+    // 抽帧是前置操作且与 OCR 实现无关：目录里有帧（含上次中断前的完整结果）就
+    // 直接复用，不重复抽帧；要重抽删除该目录即可。抽帧直接落 ms 命名（无中间名）。
+    let (duration_s, step, src_fps) = if frame_files.is_empty() {
+        println!("  extracting frames...");
+        extract_frames(&vpath, &out_dir, fps)
+    } else {
+        println!(
+            "  reusing existing frames: {} ({} 帧)",
+            out_dir.display(),
+            frame_files.len()
+        );
+        let (duration_s, src_fps) = probe_video(&vpath);
+        let step = (src_fps / fps).round().max(1.0) as u64;
+        (duration_s, step, src_fps)
+    };
+    frame_files = list_frame_files(&out_dir);
 
     let engine_tag = if ep == "cpu" {
         "ort-rust".to_string()
@@ -606,11 +618,6 @@ fn run_benchmark_rust(
     println!("\n=== OCR Benchmark: {} (fps={}, engine={}, mode={}, threads={}) ===",
         label, fps, engine_tag, if use_dir { "--dir" } else { "single-frame" },
         threads.map(|n| n.to_string()).unwrap_or_else(|| "default".into()));
-    println!("  extracting frames...");
-    let (duration_s, step, src_fps) = extract_frames(&vpath, &out_dir, fps);
-    rename_frames_to_ms(&out_dir, step, src_fps).expect("帧重命名为 ms 失败");
-    let frame_files = list_frame_files(&out_dir);
-
     let mut frame_results: Vec<FrameResult> = Vec::new();
     let mut total_ms = 0.0f64;
 
@@ -792,7 +799,7 @@ fn run_benchmark_rust(
     );
     print_alignment(&align);
 
-    let _ = std::fs::remove_dir_all(&out_dir);
+    // 抽帧目录保留复用（gitignored），要重抽删除该目录即可。
 }
 
 /// 用 subtitle_finder 关键帧路径做基准（对比传统抽帧）。
@@ -1072,7 +1079,7 @@ fn main() {
     let mut ep = "cpu".to_string();
     // rust CPU 主 bin 覆盖（默认 target/release/subtitle_ocr）。
     let mut rust_bin_override: Option<PathBuf> = None;
-    // rust DirectML 专用 bin 覆盖（默认与 rust-bin 同目录的 directml.exe）。
+    // rust DirectML 专用 bin 覆盖（默认与 rust-bin 同目录的 subtitle_ocr_directml）。
     let mut directml_bin_override: Option<PathBuf> = None;
 
     let mut i = 1;
@@ -1174,14 +1181,20 @@ fn main() {
         }
         "rust" => {
             // 按后端选 exe：cpu → 主 bin subtitle_ocr；directml → 专用 bin directml
-            // （默认取 --rust-bin 同目录的 directml.exe，两个产物通常放一起）。
+            // （默认取 --rust-bin 同目录的 subtitle_ocr_directml[.exe]，两个产物通常放一起）。
             let bin = match ep.as_str() {
                 "cpu" => rust_bin(rust_bin_override.as_deref()),
                 "directml" => directml_bin_override.clone().unwrap_or_else(|| {
+                    // Windows 产物带 .exe 后缀，Linux 无；两个 feature 形态的 exe 通常放同目录。
+                    let exe = if cfg!(windows) {
+                        "subtitle_ocr_directml.exe"
+                    } else {
+                        "subtitle_ocr_directml"
+                    };
                     rust_bin(rust_bin_override.as_deref())
                         .parent()
                         .unwrap_or(Path::new("."))
-                        .join("directml.exe")
+                        .join(exe)
                 }),
                 other => {
                     eprintln!(

@@ -630,29 +630,45 @@ pub fn probe_video(video: &Path) -> (f64, f64) {
     (duration, src_fps)
 }
 
-/// 抽帧到 out_dir/frame_%05d.jpg，返回 (时长秒, step, 源帧率)。
+/// 抽帧到 out_dir，直接以 `{ms:07}.jpg` 命名（subtitle_ocr `--dir` 的约定），
+/// 返回 (时长秒, step, 源帧率)。
+///
+/// 逐时间戳 `ffmpeg -ss <秒> -i <video> -frames:v 1` 抽取（与 LocalDub
+/// `asr_ocr_pre` 同款）：-ss 输入 seeking 帧定位精确，第 i 帧即源帧 n = i*step
+/// （等价于旧 `select='not(mod(n,step))'` 的选择），不存在 frame_%05d 之类的
+/// 中间名，也就无需抽取后重命名。
 pub fn extract_frames(video: &Path, out_dir: &Path, fps: f64) -> (f64, u64, f64) {
+    use std::process::Stdio;
     std::fs::create_dir_all(out_dir).unwrap();
     let (duration, src_fps) = probe_video(video);
     let step = (src_fps / fps).round().max(1.0) as u64;
-    let out_pattern = out_dir.join("frame_%05d.jpg");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i",
-            video.to_str().unwrap(),
-            "-vf",
-            &format!("select='not(mod(n,{}))'", step),
-            // ffmpeg 8 移除了 -vsync（deprecated 自 5.x），等价新旗标为 -fps_mode vfr。
-            "-fps_mode",
-            "vfr",
-            "-qscale:v",
-            "2",
-            out_pattern.to_str().unwrap(),
-        ])
-        .status()
-        .expect("ffmpeg 抽帧失败");
-    assert!(status.success(), "ffmpeg 抽帧退出非 0");
+    let total_frames = (duration * src_fps).ceil() as u64;
+    let count = total_frames.div_ceil(step);
+    for i in 0..count {
+        let n = i * step;
+        let ms = (n as f64 / src_fps * 1000.0).round() as u64;
+        let frame_path = out_dir.join(format!("{ms:07}.jpg"));
+        let status = Command::new("ffmpeg")
+            .args([
+                "-ss",
+                &format!("{:.6}", n as f64 / src_fps),
+                "-i",
+                video.to_str().unwrap(),
+                "-frames:v",
+                "1",
+                "-qscale:v",
+                "2",
+                frame_path.to_str().unwrap(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("ffmpeg 抽帧失败");
+        assert!(status.success(), "ffmpeg 抽帧退出非 0 (ms={ms})");
+        if (i + 1) % 50 == 0 || i == count - 1 {
+            println!("  extracted {}/{} frames", i + 1, count);
+        }
+    }
     (duration, step, src_fps)
 }
 
