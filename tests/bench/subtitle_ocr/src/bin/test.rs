@@ -6,9 +6,10 @@
 //! 行为：直接读 tests/.test-frames 下的帧，跑对应实现并校验输出 JSON 结构。
 //! 各实现输出形状不同，校验逻辑分开：
 //! - cpp：`--dir` 批量，每项 `file` + `segments[]`（段内 text/confidence/box）；
-//! - rust：逐帧单图模式，每项是 `FrameResult`——帧级 `text`/`confidence`
-//!   + `boxes[]`（框内 text/text_confidence/box）；不走 `--dir`，因为该模式
-//!   要求文件名为 `ms`/`ms_ms`，而 .test-frames 是 `frame_0000260.jpg` 命名。
+//! - rust：逐帧单图模式，每项是 `FrameResult`——帧级 `text`/`text_confidence`
+//!   + `boxes[]`（框内 text/text_confidence/box）。.test-frames 已是无前缀的
+//!   `ms` 命名（0000260.jpg 等，`--dir` 可解析），这里仍刻意走单图模式，
+//!   覆盖与 `--dir` 正交的单图路径。
 //! py 未装依赖时优雅跳过（退出非 0）。
 
 use std::path::PathBuf;
@@ -177,9 +178,9 @@ fn check_rust_output(stdout: &str, expect_len: usize) {
             .and_then(|t| t.as_str())
             .expect("帧级 text 应为字符串");
         let conf = item
-            .get("confidence")
+            .get("text_confidence")
             .and_then(|c| c.as_f64())
-            .expect("帧级 confidence 应为数字");
+            .expect("帧级 text_confidence 应为数字");
         assert!((0.0..=1.0).contains(&conf), "confidence 越界: {conf}");
         assert!(item.get("timestamp").is_some(), "缺 timestamp 字段");
         let boxes = item
@@ -218,9 +219,9 @@ fn run_rust() -> bool {
         );
         return false;
     }
-    // 不用 --dir：该模式要求文件名是 ms / ms_ms（编码时刻），而 .test-frames 下是
-    // frame_0000260.jpg 这种命名，会被 --on-bad-name skip 全部跳过、输出空数组。
-    // 这里逐帧走单图模式（timestamp 恒为 0），只校验结构。
+    // 不用 --dir：刻意逐帧走单图模式（timestamp 恒为 0），覆盖与 --dir 正交的
+    // 单图路径，只校验结构。（.test-frames 已是无前缀 ms 命名，数字位数不限，
+    // rename_strip_prefix.mjs 负责历史目录的去前缀。）
     let mut frames: Vec<PathBuf> = std::fs::read_dir(frames_dir())
         .unwrap()
         .filter_map(|e| e.ok())
