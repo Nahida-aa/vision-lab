@@ -28,6 +28,7 @@
 
 use crate::Widget;
 use image::RgbImage;
+use std::collections::HashMap;
 
 /// 拼接布局模式。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -44,6 +45,17 @@ pub enum Mode {
 /// 自动判定的边界极差上限（px）：组内参与格的 left / x1 / 高度极差都不超过
 /// 此值时视为「等大卡片」（[`Mode::Sprite`]），否则视为自由布局。
 pub const SPRITE_SPREAD_MAX: u32 = 12;
+
+impl Mode {
+    /// CLI / 文件名标识 ("auto" / "sprite" / "free")。
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Mode::Auto => "auto",
+            Mode::Sprite => "sprite",
+            Mode::Free => "free",
+        }
+    }
+}
 
 /// 切分单张长图：白底上按行排布的卡片 → 各卡片的紧致包围盒 `(x, y, w, h)`。
 ///
@@ -141,18 +153,21 @@ fn bright_blocks(dark: &[u8], threshold: u8, min_gap: u32) -> Vec<(usize, usize)
 ///
 /// `results` 的元素为 `(来源标识, 源图宽, 源图高, 该图的卡片 rect 列表)`；
 /// 来源标识只用于 auto 判定不达标时的日志。
+///
+/// 返回每组的「实际生效模式」`(源图宽, mode)`：未做统一（可信格不足 2、
+/// auto 极差判定不达标、显式 free）的组都记为 [`Mode::Free`]，即各格保留
+/// 独立收缩结果。
 pub fn unify_sizes(
     results: &mut [(String, u32, u32, Vec<(u32, u32, u32, u32)>)],
     mode: Mode,
-) {
-    use std::collections::HashMap;
-
+) -> HashMap<u32, Mode> {
     let mut groups: HashMap<u32, Vec<usize>> = HashMap::new();
     for (i, (_, w, _, _)) in results.iter().enumerate() {
         groups.entry(*w).or_default().push(i);
     }
 
-    for (_source_w, idxs) in groups {
+    let mut resolved: HashMap<u32, Mode> = HashMap::new();
+    for (source_w, idxs) in groups {
         let mut lefts: Vec<u32> = Vec::new();
         let mut x1s: Vec<u32> = Vec::new();
         let mut heights: Vec<u32> = Vec::new();
@@ -169,6 +184,7 @@ pub fn unify_sizes(
             }
         }
         if lefts.len() < 2 {
+            resolved.insert(source_w, Mode::Free);
             continue; // 可信格不足 2 个，无一致性可言
         }
 
@@ -182,10 +198,12 @@ pub fn unify_sizes(
                 // auto 判定不达标是用户需要知道的行为切换, 直接打到 stderr
                 // (与本 example 其余 [split]/[mode] 日志同风格)
                 eprintln!("[mode] auto → free (边界极差超 {SPRITE_SPREAD_MAX}px)");
+                resolved.insert(source_w, Mode::Free);
                 continue;
             }
         }
         if mode == Mode::Free {
+            resolved.insert(source_w, Mode::Free);
             continue;
         }
 
@@ -202,7 +220,9 @@ pub fn unify_sizes(
                 *r = (ul, r.1, ux1 - ul, uh);
             }
         }
+        resolved.insert(source_w, Mode::Sprite);
     }
+    resolved
 }
 
 /// 把切分结果包装成无文字信号的 Widget（source=Color），可直接交给

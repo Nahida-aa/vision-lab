@@ -31,8 +31,9 @@
 //!    贴源图边的格子（如 4.jpg 底格卡片超出源图、全宽到底）边界不可信，
 //!    不参与统计也保持原样——统一它们会裁掉真实内容。
 //!
-//! 输出：总是同时产出 `<name>-preview.png`（带彩色框线的原图，annotate 复用，
-//! 供人工核对）与裁剪的 `<name>-<序号>.png`，写入 `<输入所在目录>/out/`。
+//! 输出：总是同时产出 `<name>_preview_<生效模式>.png`（带彩色框线的原图，
+//! annotate 复用，供人工核对；auto 时即该组的判定结果，sprite 或 free）
+//! 与裁剪的 `<name>_<序号>.png`，写入 `<输入所在目录>/out/`。
 
 use anyhow::Context;
 use clap::Parser;
@@ -131,12 +132,12 @@ fn main() -> anyhow::Result<()> {
         results.push((name, img.width(), img.height(), rects));
     }
 
-    // 组内一致性（按模式）。
-    unify_sizes(&mut results, mode);
+    // 组内一致性（按模式），返回每组实际生效的模式（按源图宽分组）。
+    let resolved = unify_sizes(&mut results, mode);
 
     // 输出：预览总是产出 + 裁剪。
     let mut total = 0usize;
-    for (name, _w, _h, rects) in &results {
+    for (name, w, _h, rects) in &results {
         let src = inputs
             .iter()
             .find(|s| {
@@ -151,15 +152,17 @@ fn main() -> anyhow::Result<()> {
             .to_rgb8();
 
         // 预览总是产出：带彩框原图，随时可人工核对切分框。
+        // 文件名带该图所在组实际生效的模式（auto 为组内判定结果）。
+        let eff_mode = resolved.get(w).copied().unwrap_or(Mode::Free);
         let widgets = ocr_layout::panels::rects_to_widgets(rects, img.width() * img.height());
-        let preview = out_dir.join(format!("{name}-preview.png"));
+        let preview = out_dir.join(format!("{name}_preview_{}.png", eff_mode.as_str()));
         annotate(&img, &widgets)
             .save(&preview)
             .with_context(|| format!("保存失败: {}", preview.display()))?;
         eprintln!("        预览 → {}", preview.display());
 
         for (idx, (x, y, cw, ch)) in rects.iter().enumerate() {
-            let out = out_dir.join(format!("{name}-{}.png", idx + 1));
+            let out = out_dir.join(format!("{name}_{}.png", idx + 1));
             crop_rgb(&img, *x, *y, *cw, *ch)
                 .save(&out)
                 .with_context(|| format!("保存失败: {}", out.display()))?;
