@@ -1,6 +1,12 @@
 //! 命令行：把多格漫画长图切成紧致的独立子图。
 //!
-//!   cargo run -p ocr_layout --example split-panels -- <图片或目录> [--out <dir>] [--threshold N] [--min-gap N] [--mode sprite|free|auto]
+//!   cargo run -p ocr_layout --example split-panels -- <图片或目录> [--out <dir>] [--threshold N] [--min-gap N] [--mode sprite|free|auto] [--frame]
+//!
+//! 检测信号 (决定「什么算卡片」, 二选一):
+//! - 默认 (content=195): 暗 (min<195)=卡片内容, 亮 (>=195)=缝。适合深色背景卡片/
+//!   内容嵌白布; 浅色背景 (min>=195) 下卡片背景会被误当缝、把一张卡打碎。
+//! - `--frame` (frame=245): 非白 (min<245)=卡片体(背景+内容), 白 (>=245)=缝。
+//!   适合「带彩色背景、以白分隔」的漫画, 0 白边, 亮背景鲁棒。
 //!
 //! 把「纯图片构成的 UI」交给布局层：每一格就是一条**无文字信号的 Widget**
 //! （source=Color）。算法分三层：
@@ -38,7 +44,7 @@
 use anyhow::Context;
 use clap::Parser;
 use image_util::crop_rgb;
-use ocr_layout::panels::{Mode, split_panels, unify_sizes};
+use ocr_layout::panels::{Mode, FRAME_THRESHOLD, split_panels, unify_sizes};
 use ocr_layout::annotate;
 use std::path::{Path, PathBuf};
 
@@ -63,6 +69,11 @@ struct Args {
     /// 拼接布局模式：sprite=卡片等大 / free=逐格独立 / auto=按边界极差判定
     #[arg(long, value_enum, default_value_t = ArgsMode::Auto)]
     mode: ArgsMode,
+    /// 卡片框模式: 用非白阈值 (FRAME_THRESHOLD=245) 切「整张卡片体(背景+内容)」、
+    /// 0 白边; 对浅色背景卡片鲁棒 (默认 195 会把亮背景误当缝、把卡打碎)。
+    /// 指定时覆盖 --threshold。
+    #[arg(long)]
+    frame: bool,
 }
 
 /// CLI 侧的 Mode 包装: derive ValueEnum (库 Mode 不依赖 clap)。
@@ -91,8 +102,11 @@ fn main() -> anyhow::Result<()> {
         threshold,
         min_gap,
         mode,
+        frame,
     } = args;
     let mode: Mode = mode.into();
+    // --frame: 卡片框(非白)检测, 覆盖默认阈值 (195=content)。
+    let threshold = if frame { FRAME_THRESHOLD } else { threshold };
 
     let inputs = collect_images(&input)?;
     if inputs.is_empty() {
@@ -123,7 +137,7 @@ fn main() -> anyhow::Result<()> {
 
         let rects = split_panels(&img, threshold, min_gap);
         eprintln!(
-            "[split] {} {}x{} → {} 块",
+            "[split] thr={threshold} {} {}x{} → {} 块",
             src.display(),
             img.width(),
             img.height(),

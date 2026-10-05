@@ -46,6 +46,12 @@ pub enum Mode {
 /// 此值时视为「等大卡片」（[`Mode::Sprite`]），否则视为自由布局。
 pub const SPRITE_SPREAD_MAX: u32 = 12;
 
+/// 「卡片框(非白)」检测阈值: 白色画布/脏白 (min >= 245) 判为「白」剔除,
+/// 其下 (彩色卡片背景、暗内容、薄浅色抗锯齿边) 都算「卡片体」。
+/// 对「带彩色背景、以白分隔」的漫画/UI, 用此阈值切出**整张卡片**(0 白边),
+/// 避免 content 检测 (195) 把浅色背景误当「缝」而把一张卡打碎成多块。
+pub const FRAME_THRESHOLD: u8 = 245;
+
 impl Mode {
     /// CLI / 文件名标识 ("auto" / "sprite" / "free")。
     pub const fn as_str(&self) -> &'static str {
