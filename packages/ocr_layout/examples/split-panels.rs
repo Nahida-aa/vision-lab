@@ -1,6 +1,9 @@
 //! 命令行：把多格漫画长图切成紧致的独立子图。
 //!
-//!   cargo run -p ocr_layout --example split-panels -- <图片或目录> [--out <dir>] [--threshold N] [--min-gap N] [--mode sprite|free|auto] [--frame]
+//!   cargo run -p ocr_layout --example split-panels -- <图片或目录> [--out <dir>] [--threshold N] [--min-gap N] [--mode sprite|free|auto] [--frame] [--edge-trim N]
+//!
+//! `--edge-trim N`: 裁剪向内缩 N px 去掉卡片边缘亮晕边 (晕边与浅色背景数值重叠、
+//! 无法按值区分, 只能按位置去)。--frame 未指定时默认 3; content 默认 0。
 //!
 //! 检测信号 (决定「什么算卡片」, 二选一):
 //! - 默认 (content=195): 暗 (min<195)=卡片内容, 亮 (>=195)=缝。适合深色背景卡片/
@@ -74,6 +77,11 @@ struct Args {
     /// 指定时覆盖 --threshold。
     #[arg(long)]
     frame: bool,
+    /// 裁剪向内缩 N 像素, 去掉卡片边缘的亮晕边。晕边与浅色背景数值重叠
+    /// (都 200–244), 无法按亮度区分, 只能按「最外层 N 像素」的位置去掉。
+    /// --frame 未显式指定时默认 3; content 默认 0。
+    #[arg(long)]
+    edge_trim: Option<u32>,
 }
 
 /// CLI 侧的 Mode 包装: derive ValueEnum (库 Mode 不依赖 clap)。
@@ -103,10 +111,13 @@ fn main() -> anyhow::Result<()> {
         min_gap,
         mode,
         frame,
+        edge_trim,
     } = args;
     let mode: Mode = mode.into();
     // --frame: 卡片框(非白)检测, 覆盖默认阈值 (195=content)。
     let threshold = if frame { FRAME_THRESHOLD } else { threshold };
+    // 卡片框默认内缩 3px 去亮晕边 (除非 --edge-trim 显式覆盖); content 不缩。
+    let edge_trim = edge_trim.unwrap_or(if frame { 3 } else { 0 });
 
     let inputs = collect_images(&input)?;
     if inputs.is_empty() {
@@ -135,9 +146,18 @@ fn main() -> anyhow::Result<()> {
             .with_context(|| format!("读取图片失败: {}", src.display()))?
             .to_rgb8();
 
-        let rects = split_panels(&img, threshold, min_gap);
+        let mut rects = split_panels(&img, threshold, min_gap);
+        if edge_trim > 0 {
+            // 内缩去掉卡片边缘亮晕边 (晕边与浅色背景无法按值区分, 按位置去)。
+            let t = edge_trim;
+            rects = rects
+                .into_iter()
+                .map(|(x, y, w, h)| (x + t, y + t, w.saturating_sub(2 * t), h.saturating_sub(2 * t)))
+                .filter(|(_, _, w, h)| *w > 0 && *h > 0)
+                .collect();
+        }
         eprintln!(
-            "[split] thr={threshold} {} {}x{} → {} 块",
+            "[split] thr={threshold} trim={edge_trim} {} {}x{} → {} 块",
             src.display(),
             img.width(),
             img.height(),
