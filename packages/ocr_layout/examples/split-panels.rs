@@ -170,7 +170,24 @@ fn run_cc(
         // 预览: 带彩色包围盒的原图 (bbox 近似卡片形), 总是产出供人工核对。
         let rects: Vec<(u32, u32, u32, u32)> = panels.iter().map(|p| p.bbox).collect();
         let widgets = ocr_layout::panels::rects_to_widgets(&rects, area);
-        let preview = out_dir.join(format!("{name}_preview.png"));
+
+        // 简单网格判定: 同组面板宽高极差 ≤ 12px → sprite, 否则 free
+        let eff_mode_str = if panels.len() >= 2 {
+            let widths: Vec<u32> = panels.iter().map(|p| p.bbox.2).collect();
+            let heights: Vec<u32> = panels.iter().map(|p| p.bbox.3).collect();
+            let w_spread = widths.iter().max().unwrap() - widths.iter().min().unwrap();
+            let h_spread = heights.iter().max().unwrap() - heights.iter().min().unwrap();
+            if w_spread <= 12 && h_spread <= 12 {
+                "sprite"
+            } else {
+                "free"
+            }
+        } else {
+            "free"
+        };
+        eprintln!("[mode] {} → {}", name, eff_mode_str);
+
+        let preview = out_dir.join(format!("{name}_preview_{}.png", eff_mode_str));
         annotate(&img, &widgets)
             .save(&preview)
             .with_context(|| format!("保存失败: {}", preview.display()))?;
