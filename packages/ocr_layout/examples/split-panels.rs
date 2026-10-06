@@ -201,7 +201,7 @@ fn run_cc(
         eprintln!("        预览 → {}", preview.display());
 
         for (idx, panel) in panels.iter().enumerate() {
-            let out = out_dir.join(format!("{name}-{}.png", idx + 1));
+            let out = out_dir.join(format!("{}_{}.png", name, idx + 1));
 
             if let Some((gx, _gy, gw, _gh)) = &grid_rect {
                 // 网格策略: 统一矩形裁剪 (所有面板同宽, 零白边)
@@ -325,7 +325,7 @@ fn run_content(
         eprintln!("        预览 → {}", preview.display());
 
         for (idx, (x, y, cw, ch)) in rects.iter().enumerate() {
-            let out = out_dir.join(format!("{name}-{}.png", idx + 1));
+            let out = out_dir.join(format!("{}_{}.png", name, idx + 1));
             crop_rgb(&img, *x, *y, *cw, *ch)
                 .save(&out)
                 .with_context(|| format!("保存失败: {}", out.display()))?;
