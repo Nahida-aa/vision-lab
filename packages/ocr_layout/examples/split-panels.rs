@@ -168,12 +168,17 @@ fn run_cc(
         );
 
         // ===== 第一阶段: 粗判定 (grid vs free) =====
+        // 相对阈值: 极差 / 最大尺寸 <= 3% (避免贴边格导致绝对 px 误判)
         let is_grid = if panels.len() >= 2 {
             let widths: Vec<u32> = panels.iter().map(|p| p.bbox.2).collect();
             let heights: Vec<u32> = panels.iter().map(|p| p.bbox.3).collect();
             let w_spread = widths.iter().max().unwrap() - widths.iter().min().unwrap();
             let h_spread = heights.iter().max().unwrap() - heights.iter().min().unwrap();
-            w_spread <= 12 && h_spread <= 12
+            let w_max = *widths.iter().max().unwrap();
+            let h_max = *heights.iter().max().unwrap();
+            w_max > 0 && h_max > 0
+                && (w_spread as f64) / (w_max as f64) <= 0.03
+                && (h_spread as f64) / (h_max as f64) <= 0.03
         } else {
             false
         };
@@ -186,7 +191,52 @@ fn run_cc(
             let ul = panels.iter().map(|p| p.bbox.0).max().unwrap();
             let ux1 = panels.iter().map(|p| p.bbox.0 + p.bbox.2).min().unwrap();
             let uw = ux1 - ul;
-            Some((ul, 0, uw, 0)) // y/h 由每行独立计算
+            // 细判定: 从统一矩形边缘向内收缩到第一个非白像素 (min < 245)
+            let img_dark: Vec<u8> = img.pixels().map(|p| *p.0.iter().min().unwrap()).collect();
+            let img_w = img.width() as usize;
+            // 在 [ul, ul+uw] x [0, img_h] 范围内, 找最紧的上下边界
+            let img_h = img.height() as usize;
+            let mut top = 0u32;
+            let mut bot = img_h as u32;
+            for y in 0..img_h {
+                let row_has_content = (ul as usize..(ul + uw) as usize)
+                    .any(|x| img_dark[y * img_w + x] < 245);
+                if row_has_content {
+                    top = y as u32;
+                    break;
+                }
+            }
+            for y in (0..img_h).rev() {
+                let row_has_content = (ul as usize..(ul + uw) as usize)
+                    .any(|x| img_dark[y * img_w + x] < 245);
+                if row_has_content {
+                    bot = y as u32 + 1;
+                    break;
+                }
+            }
+            // 左右同样收缩
+            let mut left = ul;
+            let mut right = ul + uw;
+            for x in ul..ux1 {
+                let col_has_content = ((top as usize)..(bot as usize))
+                    .any(|y| img_dark[y * img_w + (x as usize)] < 245);
+                if col_has_content {
+                    left = x;
+                    break;
+                }
+            }
+            for x in (ul..ux1).rev() {
+                let col_has_content = ((top as usize)..(bot as usize))
+                    .any(|y| img_dark[y * img_w + (x as usize)] < 245);
+                if col_has_content {
+                    right = x + 1;
+                    break;
+                }
+            }
+            let final_ux = left;
+            let final_uw = right - left;
+            eprintln!("[tighten] grid ({ul},{uw}) → ({final_ux},{final_uw}) top={top} bot={bot}");
+            Some((final_ux, 0, final_uw, 0))
         } else {
             None
         };
