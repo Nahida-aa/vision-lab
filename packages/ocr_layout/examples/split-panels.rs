@@ -167,26 +167,33 @@ fn run_cc(
             panels.len()
         );
 
-        // 预览: 带彩色包围盒的原图 (bbox 近似卡片形), 总是产出供人工核对。
-        let rects: Vec<(u32, u32, u32, u32)> = panels.iter().map(|p| p.bbox).collect();
-        let widgets = ocr_layout::panels::rects_to_widgets(&rects, area);
-
-        // 简单网格判定: 同组面板宽高极差 ≤ 12px → sprite, 否则 free
-        let eff_mode_str = if panels.len() >= 2 {
+        // ===== 第一阶段: 粗判定 (grid vs free) =====
+        let is_grid = if panels.len() >= 2 {
             let widths: Vec<u32> = panels.iter().map(|p| p.bbox.2).collect();
             let heights: Vec<u32> = panels.iter().map(|p| p.bbox.3).collect();
             let w_spread = widths.iter().max().unwrap() - widths.iter().min().unwrap();
             let h_spread = heights.iter().max().unwrap() - heights.iter().min().unwrap();
-            if w_spread <= 12 && h_spread <= 12 {
-                "sprite"
-            } else {
-                "free"
-            }
+            w_spread <= 12 && h_spread <= 12
         } else {
-            "free"
+            false
         };
+        let eff_mode_str = if is_grid { "sprite" } else { "free" };
         eprintln!("[mode] {} → {}", name, eff_mode_str);
 
+        // ===== 第二阶段: 细节策略 =====
+        // 网格: 统一到最紧共同矩形 (等尺寸, 无 alpha); 自由: 逐格 alpha 贴纸
+        let grid_rect: Option<(u32, u32, u32, u32)> = if is_grid {
+            let ul = panels.iter().map(|p| p.bbox.0).max().unwrap();
+            let ux1 = panels.iter().map(|p| p.bbox.0 + p.bbox.2).min().unwrap();
+            let uw = ux1 - ul;
+            Some((ul, 0, uw, 0)) // y/h 由每行独立计算
+        } else {
+            None
+        };
+
+        // 预览: 带彩色包围盒的原图, 总是产出供人工核对。
+        let rects: Vec<(u32, u32, u32, u32)> = panels.iter().map(|p| p.bbox).collect();
+        let widgets = ocr_layout::panels::rects_to_widgets(&rects, area);
         let preview = out_dir.join(format!("{name}_preview_{}.png", eff_mode_str));
         annotate(&img, &widgets)
             .save(&preview)
@@ -194,10 +201,15 @@ fn run_cc(
         eprintln!("        预览 → {}", preview.display());
 
         for (idx, panel) in panels.iter().enumerate() {
-            let (x, y, cw, ch) = panel.bbox;
             let out = out_dir.join(format!("{name}-{}.png", idx + 1));
-            if bbox {
-                // 矩形包围盒裁剪 (可按 edge_trim 内缩去亮晕边)
+
+            if let Some((gx, _gy, gw, _gh)) = &grid_rect {
+                // 网格策略: 统一矩形裁剪 (所有面板同宽, 零白边)
+                let x = *gx;
+                let y = panel.bbox.1;
+                let cw = *gw;
+                let ch = panel.bbox.3;
+                // 可按 edge_trim 内缩
                 let t = edge_trim;
                 let nx = x + t;
                 let ny = y + t;
@@ -209,8 +221,31 @@ fn run_cc(
                 crop_rgb(&img, nx, ny, nw, nh)
                     .save(&out)
                     .with_context(|| format!("保存失败: {}", out.display()))?;
+                eprintln!(
+                    "        {}-{}  rect=({}, {}, {}, {}) [grid]",
+                    name, idx + 1, nx, ny, nw, nh
+                );
+            } else if bbox {
+                // 自由 + --bbox: 矩形包围盒裁剪
+                let (x, y, cw, ch) = panel.bbox;
+                let t = edge_trim;
+                let nx = x + t;
+                let ny = y + t;
+                let nw = cw.saturating_sub(2 * t);
+                let nh = ch.saturating_sub(2 * t);
+                if nw == 0 || nh == 0 {
+                    continue;
+                }
+                crop_rgb(&img, nx, ny, nw, nh)
+                    .save(&out)
+                    .with_context(|| format!("保存失败: {}", out.display()))?;
+                eprintln!(
+                    "        {}-{}  rect=({}, {}, {}, {}) [free-bbox]",
+                    name, idx + 1, nx, ny, nw, nh
+                );
             } else {
-                // alpha 贴纸裁切: 卡片形不透明, 外部透明 (0 白边)
+                // 自由策略: alpha 贴纸裁切 (0 白边)
+                let (x, y, cw, ch) = panel.bbox;
                 let crop = crop_rgb(&img, x, y, cw, ch);
                 let mut rgba = RgbaImage::new(cw, ch);
                 for py in 0..ch {
@@ -223,17 +258,11 @@ fn run_cc(
                 rgba
                     .save(&out)
                     .with_context(|| format!("保存失败: {}", out.display()))?;
+                eprintln!(
+                    "        {}-{}  bbox=({}, {}, {}, {}) area={} [free-alpha]",
+                    name, idx + 1, x, y, cw, ch, panel.area
+                );
             }
-            eprintln!(
-                "        {}-{}  bbox=({}, {}, {}, {}) area={}",
-                name,
-                idx + 1,
-                x,
-                y,
-                cw,
-                ch,
-                panel.area
-            );
             total += 1;
         }
     }
