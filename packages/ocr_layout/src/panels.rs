@@ -117,6 +117,237 @@ pub fn split_panels(img: &RgbImage, threshold: u8, min_gap: u32) -> Vec<(u32, u3
     rects
 }
 
+/// 2D 连通域切出的卡片: 包围盒 + 形状掩膜 (alpha 裁切用).
+#[derive(Debug, Clone)]
+pub struct Panel {
+    /// 包围盒 (x, y, w, h).
+    pub bbox: (u32, u32, u32, u32),
+    /// 形状掩膜, 长 `w*h` (行主序), 255=卡片内(不透明), 0=卡片外(透明).
+    pub mask: Vec<u8>,
+    /// 卡片实心区域面积 (像素数).
+    pub area: u32,
+}
+
+/// 8-邻接连通域标记. `fg` 为 0/1 掩膜 (行主序, 长 w*h).
+/// 返回 (每像素标签 (0=非前景), 每标签像素数 (下标=标签, 0 恒 0)).
+fn label_cc(fg: &[u8], w: usize, h: usize) -> (Vec<i32>, Vec<usize>) {
+    let n = w * h;
+    let mut label = vec![0i32; n];
+    let mut counts: Vec<usize> = vec![0];
+    let mut next = 1i32;
+    let mut stack = Vec::with_capacity(1024);
+    for i in 0..n {
+        if fg[i] == 0 || label[i] != 0 {
+            continue;
+        }
+        label[i] = next;
+        stack.push(i);
+        let mut count = 0usize;
+        while let Some(p) = stack.pop() {
+            count += 1;
+            let (py, px) = (p / w, p % w);
+            for dy in -1isize..=1 {
+                for dx in -1isize..=1 {
+                    if dy == 0 && dx == 0 {
+                        continue;
+                    }
+                    let ny = py as isize + dy;
+                    let nx = px as isize + dx;
+                    if ny < 0 || nx < 0 || ny >= h as isize || nx >= w as isize {
+                        continue;
+                    }
+                    let ni = (ny as usize) * w + nx as usize;
+                    if fg[ni] != 0 && label[ni] == 0 {
+                        label[ni] = next;
+                        stack.push(ni);
+                    }
+                }
+            }
+        }
+        counts.push(count);
+        next += 1;
+    }
+    (label, counts)
+}
+
+
+
+/// 对二值掩膜 (255=实心, 0=空) 做形态学膨胀 (N 像素).
+/// 用于桥接卡片间的细窄白缝/白布, 使断裂的连通域合并.
+fn dilate_mask(mask: &mut [u8], w: usize, h: usize, px: u32) {
+    if px == 0 {
+        return;
+    }
+    for _ in 0..px {
+        let mut new_mask = vec![0u8; mask.len()];
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                let mut solid = mask[i] == 255;
+                if !solid {
+                    for dy in -1isize..=1 {
+                        for dx in -1isize..=1 {
+                            if dy == 0 && dx == 0 {
+                                continue;
+                            }
+                            let ny = y as isize + dy;
+                            let nx = x as isize + dx;
+                            if ny >= 0 && nx >= 0 && ny < h as isize && nx < w as isize
+                                && mask[(ny as usize) * w + (nx as usize)] == 255
+                            {
+                                solid = true;
+                                break;
+                            }
+                        }
+                        if solid {
+                            break;
+                        }
+                    }
+                }
+                new_mask[i] = solid as u8 * 255;
+            }
+        }
+        mask.copy_from_slice(&new_mask);
+    }
+}
+
+/// 对二值掩膜 (255=实心, 0=空) 做形态学腐蚀 (N 像素).
+/// 用于裁掉卡片边缘的反锯齿/亮晕边, 实现「0 白边」的紧致贴纸裁切.
+fn erode_mask(mask: &mut [u8], w: usize, h: usize, px: u32) {
+    if px == 0 {
+        return;
+    }
+    for _ in 0..px {
+        let mut new_mask = vec![0u8; mask.len()];
+        for y in 1..h.saturating_sub(1) {
+            for x in 1..w.saturating_sub(1) {
+                let i = y * w + x;
+                let mut solid = mask[i] == 255;
+                if solid {
+                    for dy in -1isize..=1 {
+                        for dx in -1isize..=1 {
+                            if dy == 0 && dx == 0 {
+                                continue;
+                            }
+                            let ny = y as isize + dy;
+                            let nx = x as isize + dx;
+                            if ny < 0 || nx < 0 || ny >= h as isize || nx >= w as isize
+                                || mask[(ny as usize) * w + (nx as usize)] == 0
+                            {
+                                solid = false;
+                                break;
+                            }
+                        }
+                        if !solid {
+                            break;
+                        }
+                    }
+                }
+                new_mask[i] = solid as u8 * 255;
+            }
+        }
+        mask.copy_from_slice(&new_mask);
+    }
+}
+
+/// 2D 连通域切卡片: 对「非白」(每像素最暗通道 < `threshold`) 掩膜做 8-邻接连通域,
+/// 每张卡片当一个「实心区域」——**填掉内部白洞** (白色对话框等; 判内外靠
+/// "触图像边界的白 CC = 外白布, 其余白 = 内部洞"), 得到跟随卡片实际轮廓
+/// (圆角/抖动) 的形状. 返回各卡片, 按上→下、左→右排序.
+///
+/// 与 1D [`split_panels`] 不同: 这里卡片是**连通域** (2D), 亮背景不再把一张卡
+/// 打碎; 形状 mask 供 alpha 裁切, 卡片外透明 (0 白边 / 贴纸式).
+///
+/// `min_area` 过滤噪点连通域 (如卡间白缝里的暗噪点), 单位像素.
+pub fn split_panels_cc(img: &RgbImage, threshold: u8, min_area: u32, bridge_px: u32, erode_px: u32) -> Vec<Panel> {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let n = w * h;
+    // 每像素最暗通道
+    let dark: Vec<u8> = img.pixels().map(|p| *p.0.iter().min().unwrap()).collect();
+    // 白色掩膜 (最暗 >= threshold = 白布/白缝)
+    let white: Vec<u8> = dark.iter().map(|&v| (v >= threshold) as u8).collect();
+    // 白色 CC: 触图像边界的白 CC = 外白布 (卡间白缝经边缘白布连通, 也是外)
+    let (wl, _wcounts) = label_cc(&white, w, h);
+    let maxl = wl.iter().max().copied().unwrap_or(0) as usize;
+    let mut exterior = vec![false; maxl + 1];
+    let mut mark = |l: i32| {
+        if l > 0 {
+            exterior[l as usize] = true;
+        }
+    };
+    for x in 0..w {
+        mark(wl[x]);
+    } // 顶边
+    let b = (h - 1) * w;
+    for x in 0..w {
+        mark(wl[b + x]);
+    } // 底边
+    for y in 0..h {
+        mark(wl[y * w]);
+    } // 左边
+    for y in 0..h {
+        mark(wl[y * w + (w - 1)]);
+    } // 右边
+    // 卡片掩膜 = 非「外白布」 (含卡片本体 + 内部白洞, 如白色对话框)
+    let card: Vec<u8> = (0..n)
+        .map(|i| {
+            let l = wl[i];
+            if l == 0 || !exterior[l as usize] {
+                255
+            } else {
+                0
+            }
+        })
+        .collect();
+    // 形态学闭运算: 膨胀桥接白缝, 再腐蚀恢复边缘 (此处仅膨胀, 腐蚀在单卡 mask 上做)
+    let mut bridge_mask = card.clone();
+    dilate_mask(&mut bridge_mask, w, h, bridge_px);
+    // 卡片 CC (在膨胀后的掩膜上, 使断裂的卡片合并)
+    let (cl, ccounts) = label_cc(&bridge_mask, w, h);
+    let cmax = cl.iter().max().copied().unwrap_or(0);
+    let min_area = min_area as usize;
+    let mut panels: Vec<Panel> = Vec::new();
+    for l in 1..=cmax {
+        let area = ccounts[l as usize];
+        if area < min_area {
+            continue;
+        }
+        // 该 CC 的包围盒
+        let mut x0 = w;
+        let mut y0 = h;
+        let mut x1 = 0usize;
+        let mut y1 = 0usize;
+        for i in 0..n {
+            if cl[i] == l {
+                let (x, y) = (i % w, i / w);
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+        let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+        let mut mask = vec![0u8; bw * bh];
+        for dy in 0..bh {
+            for dx in 0..bw {
+                let i = (y0 + dy) * w + (x0 + dx);
+                if cl[i] == l {
+                    mask[dy * bw + dx] = 255;
+                }
+            }
+        }
+        // 腐蚀掉膨胀桥接的部分 + 额外的白边/晕边
+        erode_mask(&mut mask, bw, bh, bridge_px + erode_px);
+        panels.push(Panel {
+            bbox: (x0 as u32, y0 as u32, bw as u32, bh as u32),
+            mask,
+            area: area as u32,
+        });
+    }
+    panels.sort_by_key(|p| (p.bbox.1, p.bbox.0));
+    panels
+}
+
 /// 从最暗值序列找内容区间：连续亮（>= 阈值）且长度 >= `min_gap` 的段为分隔，
 /// 分隔之间的部分即内容块。
 fn bright_blocks(dark: &[u8], threshold: u8, min_gap: u32) -> Vec<(usize, usize)> {
