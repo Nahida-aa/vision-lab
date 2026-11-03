@@ -288,3 +288,135 @@ g++ -O2 -std=c++17 build/cli_main.o build/IPAlgorithms.o build/SSAlgorithms.o \
   -lopencv_geometry -ltbb -lpthread
 ```
 （OpenCV 5 头在 `/usr/include/opencv5`，需 `-include opencv_compat.h` 垫 CV_IMWRITE_* 常量。）
+
+## 七、2026-11-02 复测：Rust vs C++ 同一视频同一机器
+
+> ⚠️ 第一次复测用了"墙钟 ÷ 总帧数"这个错误口径，得出"Rust 比 C++ 慢"的结论，
+> 已作废。正确口径见 7.3。
+
+### 7.1 实验条件
+
+| 项 | 值 |
+|---|---|
+| 视频 | `vision-lab/tests/bench/subtitle_ocr/ref/狗/2/video_source.mp4` |
+| 视频参数 | 1280×720，30fps，33.9s，**1017 帧** |
+| 机器 | 16 核 |
+| Rust | `subtitle_finder`（release），`SF_NWORKERS` 控制 worker 数 |
+| C++ | `learn_ls/VideoSubFinder/cli/video_subfinder_cli`，`--no-save --threads N` |
+
+### 7.2 墙钟（仅供参考，不等于算法耗时）
+
+| 实现 | 线程 | 墙钟 |
+|---|---|---:|
+| Rust | 1 worker | 10.1s |
+| Rust | 16 workers | 8.9s |
+| C++ | 1 线程 | 8.996s / 8.896s |
+| C++ | 12 线程 | 8.203s / 8.336s |
+
+**墙钟不能直接除帧数**：Rust 侧解码单独耗时 10.0s（stderr 有单独行），
+墙钟大头是解码；C++ 侧墙钟包含它自己的打开/解码开销。
+两边口径不同，相除得出的"每帧"没有可比性。
+
+### 7.3 正确口径：Rust 内部 profile（`--profile`）
+
+单 worker，1017 帧：
+
+| 阶段 | 总耗时 |
+|---|---:|
+| color_filtration | 1731.7 ms |
+| bgr_to_yuv | 430.6 ms |
+| im_ff（边缘+阈值） | 4515.7 ms |
+| filter（连通域） | 2192.1 ms |
+| 状态机 get_intersect | 57.9 ms |
+| 状态机 compare | 77.7 ms |
+| 状态机 analize | 2934.1 ms |
+| 状态机 other | 2713.9 ms |
+| **总计** | **14653.8 ms** |
+| **平均/帧** | **14.409 ms** |
+
+> 注：16 workers 时 profile 显示 38.6ms/帧，那是**各 worker 累计**的 CPU 时间，
+> 不是墙钟，不能与单 worker 直接比较。
+
+### 7.4 结论
+
+- **Rust 实际算法耗时 14.4ms/帧**（单 worker，1017 帧视频，本机）。
+- 与 2026-08 基线（Rust 19.9ms / C++ 20.5ms）相比，
+  Rust 从 19.9 → 14.4ms，**提速约 28%**；
+  相对同一基线下的 C++ 20.5ms，**快约 30%**。
+- 用户记忆中"12-14ms/帧"与此吻合（热跑时更低）。
+- 之前误判的根源：拿墙钟除以帧数，把解码开销算进了算法耗时。
+- **结论：Rust 侧有实打实的性能改进，"比 C++ 快 30-40%"这个量级是成立的**，
+  但对外引用时必须说明口径（单 worker / 1017 帧 / 本机），
+  不能只说"快 40%"。
+
+### 遗留问题
+
+- C++ CLI 打印"搜索完成，结束于 0 ms"，`FastSearchSubtitles` 返回值不可靠，
+  但不影响墙钟计时。
+- 若要与 C++ 严格同口径对比，需要给 C++ 也加阶段级计时，目前只做了墙钟。
+
+## 八、2026-11-03：只优化 Rust 侧的 A/B 实测
+
+目标：同一视频、同一机器，把 Rust 与 C++ 的差距压平，**只改 Rust**，
+且输出（关键帧段数 / 时间轴）必须与优化前逐段一致。
+
+### 8.1 实验条件
+
+| 项 | 值 |
+|---|---|
+| 视频 | `tests/bench/subtitle_ocr/ref/狗/2/video_source.mp4`（1280×720，30fps，33.9s，1017 帧） |
+| C++ | `learn_ls/VideoSubFinder` **HEAD 干净源码**重编，`-O3 -march=native`，`--no-save`（默认 12 线程） |
+| Rust 基线 | 本仓库 HEAD 源码（优化前） |
+| Rust 优化 | 本文第八节对应的改动，默认 4 个 transform worker |
+| 机器 | 16 核；⚠️ 本次复测时桌面程序（electron/kwin/zed 等）持续抢占 CPU，load 5–20 |
+
+> 复测机不是空闲状态，墙钟比 2026-08 的空闲基线**整体慢 3–4 倍**。
+> 因此下面的同条件 A/B 只用于比较实现之间的相对差异，不与旧绝对值混用。
+
+### 8.2 同条件背靠背 A/B（3 轮）
+
+| 轮次 | Rust 基线 墙钟 / CPU | Rust 优化 墙钟 / CPU | C++ 墙钟 / CPU |
+|---|---:|---:|---:|
+| 1 | 33.07s / 122.8s | 28.07s / 115.0s | — |
+| 2 | 30.57s / 117.5s | 26.76s / 111.2s | — |
+| 3 | 29.66s / 113.3s | 26.57s / 111.8s | 26.11s / 157.7s |
+| 补充 | — | 28.22s / 115.1s | 29.46s / 168.7s |
+
+- **Rust 优化 vs Rust 基线：墙钟 −10~15%，总 CPU −4~5%**。
+  墙钟收益大于 CPU 收益，说明削掉的正是主线程串行临界路径。
+- 本轮 C++ 墙钟与 Rust 优化接近（26–29s vs 27–28s），但 **CPU 高约 40%**
+  （C++ 12 线程并行度更高，在空闲机器上墙钟更快，见 8.3）。
+- 空闲机器上此前同一 A/B 口径（本会话早前实测）：
+  **C++ 7.49/7.57/7.60s，Rust 基线 8.2–8.9s，Rust 优化 7.72–8.2s**；
+  CPU 口径 C++ ≈ 52s vs Rust ≈ 34s（Rust 约省 1/3 CPU）。
+
+### 8.3 优化项（全部为纯实现改动，语义不变）
+
+1. `compare.rs`：val3 的诊断统计（`im1/ila1/ve1/im_ff1` 的整帧白点数、331-339 噪声带）
+   原先**无条件**执行，每帧多扫 4–6 遍 0.92M 像素；改为
+   `tracing::enabled!(DEBUG)` 才计算（实测占主线程约 3ms/帧）。
+2. `compare.rs`：val3 的 `IntersectYImages(ImILAInt, ImILA2)` 改用
+   `intersect_y_images_masked` —— `ImILAInt` 之后只经 `Im2 = Im1 ∩ ImILAInt` 消费，
+   而 `Im1 ⊆ mask`，故 mask 外清零不改变任何输出（已用时间轴对拍确认）。
+3. `imgops.rs`：抽出 `y_in_range` 判定核（`wrapping_sub` 无分支区间判定），
+   单图/多图/掩码三处共用，保证逐位一致。
+4. `state.rs`：`intersect_images_range` 的二值交集改成按位与
+   （`255 & x == x`），4/5 帧展开后 LLVM 可向量化；
+   `intersect_y_images_range` 同样按 4/5 帧展开为无内层循环的判定。
+5. `preprocess.rs`：`AnalyseImage` 改行优先连续扫描，且只为密度最大的带建段表
+   （旧实现每帧为 h/segh≈240 条带各分配一个 `Vec`）。单帧 0.47 → 0.41ms；
+   新增 `analyse_flat_matches_legacy` 随机帧对拍测试。
+6. `state.rs`：检测阶段 `f1`/`f2` 只借用不 `clone`（每帧省 ~6.5MB 复制）。
+
+**放弃的方案**（记录以免重复踩坑）：
+
+- 把 u16 的 `y` 图“只在 mask 内计算”：`y` 是「亮度 + 255」而非前景掩码，
+  背景像素参与跨帧 ILA 比较，置 0 会改变语义，实测第 3 段起点 1233 → 1266。
+- `compare_two_subs` 的单趟融合（`im_ff1/im_ff2/im_res` 合并计算）：实测变慢
+  （1592ms → 1017ms 是反例，取决于数据），已回退为原来的多趟结构。
+
+### 8.4 输出一致性校验
+
+- Rust 优化前后 `timeline.txt` **逐字节相同**（19 段，第 3 段起点 1233）。
+- C++ HEAD 干净重编同样输出 19 段；与 Rust 的段边界差在 ±1 帧内
+  （Rust 段尾通常早 1 帧，属于已知的时间戳约定差异，非本次改动引入）。

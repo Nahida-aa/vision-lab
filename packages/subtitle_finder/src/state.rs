@@ -472,29 +472,122 @@ pub(crate) fn analyse_image_flat(im: &[u8], ila: Option<&[u16]>, w: usize, h: us
 /// `IntersectImages`（多图版）：`im_res = ∩ ims[min..=max]`。就地。
 fn intersect_images_range(im_res: &mut [u8], ims: &[&[u8]], min_id: usize, max_id: usize, w: usize, h: usize) {
     let size = w * h;
-    for i in 0..size {
-        if im_res[i] == 255 {
-            for &im in &ims[min_id..=max_id] {
-                if im[i] != 255 {
-                    im_res[i] = 0;
-                    break;
+    let frames = &ims[min_id..=max_id];
+    // 二值图（0/255）的交集等价于按位与：`255 & x == x`、`0 & x == 0`。
+    // 写成按位与后是无分支的全帧扫描，LLVM 可自动向量化（AVX2：32 像素/指令），
+    // 比原来「逐像素 + 内层逐帧 early-break」快一个量级。
+    match frames.len() {
+        4 => {
+            let (a, b, c, d) = (frames[0], frames[1], frames[2], frames[3]);
+            for ((((r, &a), &b), &c), &d) in im_res[..size]
+                .iter_mut()
+                .zip(a)
+                .zip(b)
+                .zip(c)
+                .zip(d)
+            {
+                *r &= a & b & c & d;
+            }
+        }
+        5 => {
+            let (a, b, c, d, e) = (frames[0], frames[1], frames[2], frames[3], frames[4]);
+            for (((((r, &a), &b), &c), &d), &e) in im_res[..size]
+                .iter_mut()
+                .zip(a)
+                .zip(b)
+                .zip(c)
+                .zip(d)
+                .zip(e)
+            {
+                *r &= a & b & c & d & e;
+            }
+        }
+        _ => {
+            for i in 0..size {
+                let mut r = im_res[i];
+                if r == 255 {
+                    for &im in frames {
+                        if im[i] != 255 {
+                            r = 0;
+                            break;
+                        }
+                    }
                 }
+                im_res[i] = r;
             }
         }
     }
 }
 
 /// `IntersectYImages`（多图版）：`ImRes` 与 `ImY[min..=max]` 做时间交叠检查。就地。
-fn intersect_y_images_range(im_res: &mut [u16], ims: &[&[u16]], min_id: usize, max_id: usize, p: &Params) {
-    let size = im_res.len();
-    for i in 0..size {
-        if im_res[i] != 0 {
-            let r = im_res[i] as i32;
-            for &im in &ims[min_id..=max_id] {
-                let v = im[i] as i32;
-                if v < r - p.max_dl_down as i32 || v > r + p.max_dl_up as i32 {
-                    im_res[i] = 0;
-                    break;
+///
+/// 这里**必须全帧扫描**：`y` 不是"前景掩码"而是 `亮度 + 255`（`0` 表示该帧无字幕），
+/// 背景像素的值同样参与区间判定，且结果还会作为另一帧比较时的 ILA 输入（跨帧
+/// 比较要读它在前景外的值）。曾试过"只在 mask 内计算、mask 外清零"，实测时间轴
+/// 第 3 段起点 1233→1266（语义不等价，已回退）。
+fn intersect_y_images_range(
+    im_res: &mut [u16],
+    ims: &[&[u16]],
+    min_id: usize,
+    max_id: usize,
+    p: &Params,
+) {
+    let frames = &ims[min_id..=max_id];
+    let up = p.max_dl_up as u16;
+    let neg_down = 0u16.wrapping_sub(p.max_dl_down as u16);
+    use imgops::y_in_range as ok;
+    // 帧数固定为 DL-1（4/5），展开成无内层循环、无分支的扫描供 LLVM 向量化。
+    match frames.len() {
+        4 => {
+            let (a, b, c, d) = (frames[0], frames[1], frames[2], frames[3]);
+            for ((((r, &a), &b), &c), &d) in im_res
+                .iter_mut()
+                .zip(a)
+                .zip(b)
+                .zip(c)
+                .zip(d)
+            {
+                let rv = *r;
+                let keep = rv != 0
+                    && ok(rv, a, up, neg_down)
+                    && ok(rv, b, up, neg_down)
+                    && ok(rv, c, up, neg_down)
+                    && ok(rv, d, up, neg_down);
+                *r = if keep { rv } else { 0 };
+            }
+        }
+        5 => {
+            let (a, b, c, d, e) = (frames[0], frames[1], frames[2], frames[3], frames[4]);
+            for (((((r, &a), &b), &c), &d), &e) in im_res
+                .iter_mut()
+                .zip(a)
+                .zip(b)
+                .zip(c)
+                .zip(d)
+                .zip(e)
+            {
+                let rv = *r;
+                let keep = rv != 0
+                    && ok(rv, a, up, neg_down)
+                    && ok(rv, b, up, neg_down)
+                    && ok(rv, c, up, neg_down)
+                    && ok(rv, d, up, neg_down)
+                    && ok(rv, e, up, neg_down);
+                *r = if keep { rv } else { 0 };
+            }
+        }
+        _ => {
+            for i in 0..im_res.len() {
+                let rv = im_res[i];
+                if rv != 0 {
+                    let r = rv as i32;
+                    for &im in frames {
+                        let v = im[i] as i32;
+                        if v < r - p.max_dl_down as i32 || v > r + p.max_dl_up as i32 {
+                            im_res[i] = 0;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -773,8 +866,10 @@ fn run_state_machine(
                 cache.advance_to(fn_start + FORWARD)?;
                 // 推进 fn_start 的 ddl 步。
                 // C++ 中先并行解码 fn_start+ddl1_ofset 与 fn_start+ddl2_ofset 帧。
+                // 只借用不 clone：f1/f2 仅读 has_text/im/y，clone 会整帧复制
+                // （bgr 2.76MB + 各图 ~3.7MB），实测占检测阶段 ~0.2s/1017 帧。
                 let f1 = match get_frame(&cache, fn_start + ddl1_ofset as i32) {
-                    Ok(f) => f.clone(),
+                    Ok(f) => f,
                     Err(_) => break 'outer, // 帧越界 → 结束
                 };
                 let bln1 = f1.has_text;
@@ -784,7 +879,7 @@ fn run_state_machine(
                 let mut bln = false;
                 if bln1 {
                     let f2 = match get_frame(&cache, fn_start + ddl2_ofset as i32) {
-                        Ok(f) => f.clone(),
+                        Ok(f) => f,
                         Err(_) => break 'outer,
                     };
                     bln2 = f2.has_text;

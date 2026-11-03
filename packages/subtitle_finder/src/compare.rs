@@ -234,14 +234,11 @@ pub fn compare_two_subs(
     let veple = p.veple;
     let ilaple = p.ilaple;
     let segh = p.segh;
-    // g_use_ILA_images_for_search_subtitles 恒 true：若任一 ILA 存在则走 ILA 分支。
-    let ila_active = ila1.is_some() || ila2.is_some();
-
     // ImRES = (Im1 ∩ ILA1) ∪ (Im2 ∩ ILA2)，或 Im1 ∪ Im2。
     let mut im_ff1 = im1.to_vec();
     let mut im_ff2 = im2.to_vec();
     let im_res: Vec<u8>;
-    if ila_active {
+    if ila1.is_some() || ila2.is_some() {
         if let Some(ila1) = ila1 {
             imgops::intersect_two_images_inplace(&mut im_ff1, ila1, 0u8);
         }
@@ -252,7 +249,6 @@ pub fn compare_two_subs(
     } else {
         im_res = imgops::add_two_images(im1, im2, w * h);
     }
-
     // 找文字带。
     let bands = get_lines_info(&im_res, w, h, segh);
     let ln = bands.len();
@@ -278,33 +274,38 @@ pub fn compare_two_subs(
         let ila1 = ila1.unwrap();
         let ila2 = ila2.unwrap();
         let ve1b = ve1b.unwrap_or(ve1);
-        // val3 输入原始白点（诊断 ILA 清空原因）
-        let raw_im1 = im1.iter().filter(|&&v| v == 255).count();
-        let raw_ila1 = ila1.iter().filter(|&&v| v != 0).count();
-        let raw_ve1 = ve1.iter().filter(|&&v| v == 255).count();
-        let ff1_wc = im_ff1.iter().filter(|&&v| v == 255).count();
+        // 诊断日志的输入（整帧扫描）只在 DEBUG 开启时才计算：这些 `iter().filter()
+        // .count()` 是 0.92M 像素的全帧扫描，曾经是无条件执行，本函数每帧调用一次
+        // → 实测占主线程 ~3ms/帧（约整条管线 40% 的串行耗时）。
+        let diag = tracing::enabled!(tracing::Level::DEBUG);
+        let raw_im1 = if diag { im1.iter().filter(|&&v| v == 255).count() } else { 0 };
+        let raw_ila1 = if diag { ila1.iter().filter(|&&v| v != 0).count() } else { 0 };
+        let raw_ve1 = if diag { ve1.iter().filter(|&&v| v == 255).count() } else { 0 };
+        let ff1_wc = if diag { im_ff1.iter().filter(|&&v| v == 255).count() } else { 0 };
         // 诊断：中屏噪声带（rows 331-339）的内容来源。
-        let rows: Vec<usize> = (331..340).collect();
-        let mut im1_noise = 0;
-        let mut ila1_noise = 0;
-        let mut ff1_noise = 0;
-        let mut ve1_noise = 0;
-        let mut im2_noise = 0;
-        let mut ff2_noise = 0;
-        for &y in &rows {
-            let ib = y * w;
-            for x in 0..w {
-                let i = ib + x;
-                if im1[i] == 255 { im1_noise += 1; }
-                if ila1[i] != 0 { ila1_noise += 1; }
-                if im_ff1[i] == 255 { ff1_noise += 1; }
-                if ve1[i] == 255 { ve1_noise += 1; }
-                if im2[i] == 255 { im2_noise += 1; }
-                if im_ff2[i] == 255 { ff2_noise += 1; }
+        if diag {
+            let rows: Vec<usize> = (331..340).collect();
+            let mut im1_noise = 0;
+            let mut ila1_noise = 0;
+            let mut ff1_noise = 0;
+            let mut ve1_noise = 0;
+            let mut im2_noise = 0;
+            let mut ff2_noise = 0;
+            for &y in &rows {
+                let ib = y * w;
+                for x in 0..w {
+                    let i = ib + x;
+                    if im1[i] == 255 { im1_noise += 1; }
+                    if ila1[i] != 0 { ila1_noise += 1; }
+                    if im_ff1[i] == 255 { ff1_noise += 1; }
+                    if ve1[i] == 255 { ve1_noise += 1; }
+                    if im2[i] == 255 { im2_noise += 1; }
+                    if im_ff2[i] == 255 { ff2_noise += 1; }
+                }
             }
-        }
-        if ff1_noise > 0 || ff2_noise > 0 {
-            debug!(im1_noise, ila1_noise, ff1_noise, ve1_noise, im2_noise, ff2_noise, rows = format!("{:?}", rows), "中屏噪声带 331-339 内容");
+            if ff1_noise > 0 || ff2_noise > 0 {
+                debug!(im1_noise, ila1_noise, ff1_noise, ve1_noise, im2_noise, ff2_noise, rows = format!("{:?}", rows), "中屏噪声带 331-339 内容");
+            }
         }
         // Im1 = ImFF1 ∩ VE1（∩ VE12 if different）
         let mut im1_c = im_ff1.clone();
@@ -312,11 +313,17 @@ pub fn compare_two_subs(
         if ve1b.as_ptr() != ve1.as_ptr() {
             imgops::intersect_two_images_inplace(&mut im1_c, ve1b, 0u8);
         }
-        let mut im2_c = im1_c.clone();
         // ImILAInt = ILA1 ∩Y ILA2（时间交叠）
         let mut ila_int = ila1.to_vec();
-        imgops::intersect_y_images(&mut ila_int, ila2, p.max_dl_down as i32, p.max_dl_up as i32);
+        imgops::intersect_y_images_masked(
+            &mut ila_int,
+            ila2,
+            &im1_c,
+            p.max_dl_down as i32,
+            p.max_dl_up as i32,
+        );
         // Im2 = Im1 ∩ ImILAInt
+        let mut im2_c = im1_c.clone();
         imgops::intersect_two_images_inplace(&mut im2_c, &ila_int, 0u8);
         // Im2 = dilate(Im2) ∩ Im1（C++ SSAlgorithms.cpp:2707 `IntersectTwoImages(Im2, Im1)`）。
         let dil = imgops::dilate(&im2_c, w, h, 1);
@@ -324,20 +331,24 @@ pub fn compare_two_subs(
         imgops::intersect_two_images_inplace(&mut im2_c, &im1_c, 0u8);
         // Im2 = Im2 ∩ VE2
         imgops::intersect_two_images_inplace(&mut im2_c, ve2, 0u8);
-        let wc_im1 = im1_c.iter().filter(|&&v| v == 255).count();
-        let wc_im2 = im2_c.iter().filter(|&&v| v == 255).count();
-        let wc_ilaint = ila_int.iter().filter(|&&v| v != 0).count();
-        let bands_str: Vec<String> = lb.iter().zip(le.iter()).map(|(a, b)| format!("{}-{}", a, b)).collect();
-        debug!(
-            wc_im1, wc_im2, wc_ilaint, ln, bands = bands_str.join(","),
-            "compare2: 带列表"
-        );
-        let (v3, dif3) = compare_ila(&lb, &le, ln, w, ilaple, &im2_c, &im1_c);
-        debug!(
-            wc_im1, wc_im2, wc_ilaint, ln, v3, dif3,
-            raw_im1, raw_ila1, raw_ve1, ff1_wc,
-            "compare2: ILA 掩码白点数"
-        );
+        let wc_im1 = if diag { im1_c.iter().filter(|&&v| v == 255).count() } else { 0 };
+        let wc_im2 = if diag { im2_c.iter().filter(|&&v| v == 255).count() } else { 0 };
+        let wc_ilaint = if diag { ila_int.iter().filter(|&&v| v != 0).count() } else { 0 };
+        if diag {
+            let bands_str: Vec<String> = lb.iter().zip(le.iter()).map(|(a, b)| format!("{}-{}", a, b)).collect();
+            debug!(
+                wc_im1, wc_im2, wc_ilaint, ln, bands = bands_str.join(","),
+                "compare2: 带列表"
+            );
+        }
+        let (v3, _dif3) = compare_ila(&lb, &le, ln, w, ilaple, &im2_c, &im1_c);
+        if diag {
+            debug!(
+                wc_im1, wc_im2, wc_ilaint, ln, v3 = v3, dif3 = _dif3,
+                raw_im1, raw_ila1, raw_ve1, ff1_wc,
+                "compare2: ILA 掩码白点数"
+            );
+        }
         v3
     } else {
         true
