@@ -422,7 +422,11 @@ g++ -O2 -std=c++17 build/cli_main.o build/IPAlgorithms.o build/SSAlgorithms.o \
 ### 8.4 输出一致性校验
 
 - Rust 优化前后 `timeline.txt` **逐字节相同**（19 段，第 3 段起点 1233）。
-- C++ HEAD 干净重编同样输出 19 段，**段首与 Rust 一致**（第 3 段两边都是 1233）。
+- C++ HEAD 干净重编同样输出 19 段，**段数一致**。段首：15/19 逐毫秒相同，
+  另 4 段 Rust 早 **1ms**（12932 vs 12933、20099 vs 20100、26599 vs 26600、
+  29632 vs 29633）。这不是检测差异，而是 Rust 用
+  `bt = f0.pos + offset * (1000/30)` 估算新段首帧的 PTS（`1000/30` 被截成
+  33ms），C++ 直接取缓存帧的真实 `PosForward[offset]`。
 - **段尾 Rust 固定比 C++ 早 1 帧**（32~33ms @30fps）。根因已定位：
   C++ `SSAlgorithms.cpp` 的 `et = PosForward[offset] - 1` 取的是「字幕消失后
   第一帧」的 PTS-1，把一帧非字幕帧算进了段尾；Rust 用的是旧句**最后一个可见帧**
