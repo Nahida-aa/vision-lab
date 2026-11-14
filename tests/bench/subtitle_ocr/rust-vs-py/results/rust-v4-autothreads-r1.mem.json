@@ -1,0 +1,26 @@
+{
+  "cmd": [
+    "./target/release/probe",
+    "--dir",
+    "packages/tmp/ocr-bench/oneframe-replay40",
+    "--model",
+    "v4",
+    "--reps",
+    "1",
+    "--warmup",
+    "1",
+    "--threshold",
+    "0.45",
+    "--subtitle-only",
+    "--out",
+    "packages/tmp/rust_v4_auto.json"
+  ],
+  "exit_code": 0,
+  "wall_ms": 30007.82313899981,
+  "peak_rss_mb": 929.61328125,
+  "mean_rss_mb": 914.7798940001726,
+  "samples": 1449,
+  "threads_max": 37,
+  "user_s": 160.260158,
+  "sys_s": 2.372541
+}

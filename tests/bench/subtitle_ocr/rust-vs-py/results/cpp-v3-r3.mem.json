@@ -1,0 +1,26 @@
+{
+  "cmd": [
+    "taskset",
+    "-c",
+    "0-3",
+    "env",
+    "LD_LIBRARY_PATH=packages/subtitle_ocr_cpp/build",
+    "OCR_MODELS_DIR=data/models/rapidocr",
+    "OCR_KEYS_PATH=data/models/rapidocr/ppocr_keys.json",
+    "./packages/subtitle_ocr_cpp/build/subtitle_ocr_ort_cpp",
+    "--dir",
+    "packages/tmp/ocr-bench/oneframe-replay40",
+    "0.45",
+    "--subtitle-only",
+    "--threads",
+    "4"
+  ],
+  "exit_code": 0,
+  "wall_ms": 10495.264337001572,
+  "peak_rss_mb": 757.2109375,
+  "mean_rss_mb": 729.6828399122807,
+  "samples": 513,
+  "threads_max": 13,
+  "user_s": 40.421167,
+  "sys_s": 0.19075
+}

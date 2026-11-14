@@ -1,0 +1,29 @@
+{
+  "cmd": [
+    "taskset",
+    "-c",
+    "0-3",
+    "./target/release/probe",
+    "--dir",
+    "packages/tmp/ocr-bench/oneframe-replay40",
+    "--model",
+    "v4",
+    "--reps",
+    "1",
+    "--warmup",
+    "1",
+    "--threshold",
+    "0.45",
+    "--subtitle-only",
+    "--out",
+    "tests/bench/subtitle_ocr/rust-vs-py/results/rust-v4-r2.json"
+  ],
+  "exit_code": 0,
+  "wall_ms": 28772.26489199893,
+  "peak_rss_mb": 931.8125,
+  "mean_rss_mb": 918.4400494017403,
+  "samples": 1379,
+  "threads_max": 25,
+  "user_s": 158.179072,
+  "sys_s": 1.683204
+}

@@ -244,6 +244,18 @@ CER 也降到 cpp 的 0.36%。两者都需落地，"完美对齐"才算真正完
 是"完美对齐"的完成态。`--warp-crop` 关闭则回到轴对齐模式（0.18% paired 文本精度最优，
 但有 4 spurious）。
 
+## 单帧耗时 / 内存实测（Rust vs Python，单帧口径）
+
+全视频基准回答「质量 + RTF」，但回答不了「Rust 相对 Python 到底快多少/省不省内存」——
+因为 `--dir` 的 `avg/frame = 墙钟 ÷ 帧数` 混入了模型加载与进程模型差异。为此另有一组
+**只测同一帧**（不跑全视频）的实测：逐帧进程内计时 + 外部 RSS 采样，口径与结论见
+[`docs/benchmark-rust-vs-py-single-frame.md`](../../../docs/benchmark-rust-vs-py-single-frame.md)，
+驱动脚本在 `rust-vs-py/`。
+
+结论摘要：同权重同 4 线程的纯单帧处理 Python 447ms → Rust 358ms（1.25×）；相对「每帧
+起进程、重建 3 个 ORT session」的旧调用方式为 832ms → 358ms（2.32×）；**内存按各自默认
+配置 Rust 更高（932MB vs 581MB 峰值），「省内存」不成立**。
+
 ## 性能注意事项
 
 ⚠️ **ORT 线程数不是越大越好。** det 输入小、rec 是逐行小图，算子粒度细，
