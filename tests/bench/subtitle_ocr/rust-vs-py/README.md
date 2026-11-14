@@ -37,3 +37,5 @@ python3 summarize.py | tee results/summary.md
 - cpp 的逐帧值 = `imageLoadMs + detMs + postMs + recMs`（剔除 `modelLoadMs`，它的
   `totalMs` 每帧都重复计入模型加载，会虚高 ~123ms）。
 - python 批量 vs one-shot 是**两种调用方式**，不是同一口径的两个数字。
+- 内存要**同 arena 配置**比：`RAPIDOCR_CPU_ARENA=0` 让 Rust 走 `DisableCpuMemArena`
+  （等价 Python 包内的 `enable_cpu_mem_arena=False`）；不设则走 ORT 默认（arena 开）。

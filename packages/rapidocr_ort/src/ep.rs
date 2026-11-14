@@ -68,7 +68,19 @@ impl ExecutionBackend {
         match self {
             ExecutionBackend::Cpu => {
                 let _ = device_id;
-                Ok(builder)
+                // 内存归因探针（默认关闭）：`RAPIDOCR_CPU_ARENA=0` 时显式注册 CPU EP 并
+                // 关掉 CPU mem arena，与 Python `rapidocr_onnxruntime` 的
+                // `enable_cpu_mem_arena=False` 对齐。不设该变量时保持原行为（不注册 EP，
+                // 走 ORT 默认 = arena 开），故不影响线上路径与既有基准。
+                // 动机与数据见 docs/benchmark-rust-vs-py-single-frame.md §3.2。
+                match std::env::var("RAPIDOCR_CPU_ARENA").ok().as_deref() {
+                    Some("0") => builder
+                        .with_execution_providers([ort::ep::CPU::default()
+                            .with_arena_allocator(false)
+                            .build()])
+                        .map_err(|e| anyhow::anyhow!("注册 CPU 执行后端（arena off）失败: {e}")),
+                    _ => Ok(builder),
+                }
             }
             ExecutionBackend::Cuda => {
                 #[cfg(feature = "ep-cuda")]

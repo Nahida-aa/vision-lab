@@ -109,8 +109,9 @@ def main():
     print("## 逐帧耗时（ms）\n")
     print("| 实现 | 样本 n | avg | P50 | P95 | min | max |")
     print("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
-    order = ["rust-v4", "rust-v3", "cpp-v3(ORT)", "py-v4", "py-v4-oneshot",
-             "py-v4-arenaon", "rust-v4-autothreads", "py-v4-autothreads"]
+    order = ["rust-v4", "rust-v4-arenaoff", "py-v4", "py-v4-arenaon", "py-v4-oneshot",
+             "rust-v3", "rust-v3-arenaoff", "cpp-v3(ORT)",
+             "rust-v4-autothreads", "py-v4-autothreads"]
     for key in order + [k for k in grouped if k not in order]:
         if key not in grouped:
             continue
@@ -133,8 +134,9 @@ def main():
     print("\n## 内存（MB）\n")
     print("| 实现 | 峰值 RSS | 各轮峰值 | 平均 RSS | 线程峰值 |")
     print("| --- | ---: | --- | ---: | ---: |")
-    for key in ["rust-v4", "rust-v3", "cpp-v3", "py-v4", "py-v4-oneshot",
-                "py-v4-arenaon", "rust-v4-autothreads", "py-v4-autothreads"]:
+    for key in ["rust-v4", "rust-v4-arenaoff", "rust-v3", "rust-v3-arenaoff",
+                "cpp-v3", "py-v4", "py-v4-arenaon", "py-v4-oneshot",
+                "rust-v4-autothreads", "py-v4-autothreads"]:
         m = mem(key)
         if not m:
             continue

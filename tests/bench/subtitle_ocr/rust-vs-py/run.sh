@@ -62,6 +62,14 @@ for r in $(seq 1 "$REPS"); do
       --out "$RES/rust-$m-r$r.json" >/dev/null
   done
 
+  # rust 关 arena（与 Python 包内默认 enable_cpu_mem_arena=False 对齐）
+  for m in v4 v3; do
+    python3 "$HERE/monitor.py" "$RES/rust-$m-arenaoff-r$r.mem.json" -- \
+      taskset -c "$CPUSET" env RAPIDOCR_CPU_ARENA=0 ./target/release/probe --dir "$FRAME_DIR" --model "$m" \
+      --reps 1 --warmup 1 --threshold 0.45 --subtitle-only \
+      --out "$RES/rust-$m-arenaoff-r$r.json" >/dev/null
+  done
+
   # cpp v3（权重写死 v3）
   python3 "$HERE/monitor.py" "$RES/cpp-v3-r$r.mem.json" -- \
     taskset -c "$CPUSET" env \
@@ -77,6 +85,12 @@ for r in $(seq 1 "$REPS"); do
     taskset -c "$CPUSET" packages/subtitle_ocr_py/.venv/bin/python "$HERE/py_batch.py" \
       --frame "$FRAME" --reps "$SAMPLES" --threads 4 \
       --out "$RES/py-v4-r$r.json" >/dev/null
+
+  # python v4：开 arena（归因实验，与 rust/cpp 的 ORT 默认对齐）
+  python3 "$HERE/monitor.py" "$RES/py-v4-arenaon-r$r.mem.json" -- \
+    taskset -c "$CPUSET" packages/subtitle_ocr_py/.venv/bin/python "$HERE/py_batch.py" \
+      --frame "$FRAME" --reps "$SAMPLES" --threads 4 --arena-on \
+      --out "$RES/py-v4-arenaon-r$r.json" >/dev/null
 
   # python v4：每帧一个进程（旧基准口径，5 次足够）
   taskset -c "$CPUSET" packages/subtitle_ocr_py/.venv/bin/python "$HERE/py_batch.py" \

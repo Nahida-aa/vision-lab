@@ -3,8 +3,10 @@
 > 目的：给简历里「用 Rust（ort-rs / opencv-rs）替代 Python，降低内存占用和处理耗时」这句
 > 业绩找证据，或者证伪它。
 >
-> 结论先放这：**「快」成立（同权重同线程约 1.25×，相对旧的每帧起进程调用约 2.3×）；
-> 「省内存」不成立（按各自默认配置，Rust 峰值 932MB > Python 581MB）。**
+> 结论先放这：**「快」成立（同权重同线程 1.22–1.25×；相对旧的每帧起进程调用 2.3×）；
+> 「省内存」不是一个稳健结论——同配置对齐后方向会翻转：arena 开时 Rust 低 20%
+> （932 vs 1162MB），arena 关时 Rust 高 9%（634 vs 581MB）。arena 一个开关就值
+> 300–580MB，远大于两者的残余差。**
 > 速度收益主要来自「常驻 ORT session + 不每帧起进程」，不是 opencv-rs，也不是 Rust 语言本身。
 >
 > 测量日期：2026-11-14 ｜ 只测**同一帧**（按约定不跑全视频），重复采样取 P50/P95。
@@ -27,9 +29,8 @@
 - 同权重（v4）、同 4 线程、单帧纯 OCR：Python **447ms** → Rust **358ms**，**1.25×**。
 - 旧的 Python 调用方式（每帧一个进程、每帧重建 3 个 ORT session）：**832ms/帧**；Rust 常驻
   session **358ms/帧**，**2.32×**。这 2.3× 里有 ~385ms/帧 是进程+session 重建，不是推理。
-- 内存：Rust v4 峰值 **932MB** / 均值 916MB；Python v4 默认峰值 **581MB** / 均值 370MB。
-  **Rust 反而更高**。同 ORT 配置（都开 arena）才是 932 vs 1162（Rust 低 20%），但那是
-  Python 被改成非默认配置后的结果。
+- 内存：**同配置对齐后方向会翻转**——都关 arena（Python 的默认）Rust 634MB > Python 581MB；
+  都开 arena Rust 932MB < Python 1162MB。详见 §3.2。
 
 ---
 
@@ -120,33 +121,55 @@
 **三个实现的 session 初始化成本其实差不多（~130ms）。** 差距不在「Rust 建 session 更快」，
 而在 Python 的旧调用路径**每帧都重付这 ~130ms，外加解释器启动和 `import cv2`**。
 
-### 3.2 内存（MB）
+### 3.2 内存（MB）：同配置对齐后，**方向会翻转**
 
-| 实现 | 权重 / ORT 配置 | 峰值 RSS | 各轮峰值 | 平均 RSS | 线程峰值 |
-| --- | --- | ---: | --- | ---: | ---: |
-| Rust v4 | v4 / arena 开（ORT 默认） | **931.8** | 928, 932, 928 | 916.1 | 25 |
-| Python v4（默认） | v4 / **arena 关**（包内硬编码） | **580.7** | 577, 577, 581 | 370.0 | 19 |
-| Python v4（诊断：开 arena） | v4 / arena 开 | **1162.0** | 1162 | 1023.8 | 19 |
-| Python v4（每帧一个进程） | v4 / arena 关 | 511.0 | 511, 511, 510 | —（进程太短） | — |
-| Rust v3 | v3 / arena 开 | 757.0 | 757, 739, 734 | 728.7 | 25 |
-| C++ v3 | v3 / arena 开 | 757.6 | 754, 758, 757 | 729.3 | 13 |
+先给全表（v4 与 v3 分开，每格为 3 轮；arena-off 的 Rust 为 5 轮，r1 撞上负载尖峰，
+取中位轮值并注明）：
 
-读法：
+| 实现 | 权重 / ORT arena | 峰值 RSS | 平均 RSS | 备注 |
+| --- | --- | ---: | ---: | --- |
+| Rust v4 | v4 / **开**（ORT 默认） | 931.8 | 916.1 | 3 轮：928/932/928 |
+| Rust v4 | v4 / **关**（`RAPIDOCR_CPU_ARENA=0`） | **634**（中位） | **463**（中位） | 5 轮峰值 645/633/634/631/669，均值 472/463/463/461/547 |
+| Python v4 | v4 / **关**（包内默认） | 580.7 | 370.0 | 3 轮：577/577/581 |
+| Python v4 | v4 / **开**（诊断 patch） | 1163.1 | 1024.5 | 3 轮：1162/1163/1163 |
+| Rust v3 | v3 / 开 | 757.0 | 728.7 | 3 轮：757/739/734 |
+| Rust v3 | v3 / 关 | 526（中位） | 347（中位） | 3 轮峰值 526/515/571 |
+| C++ v3 | v3 / 开 | 757.6 | 729.3 | 3 轮：754/758/757 |
+| Python v4（每帧一进程） | v4 / 关 | 511.0 | — | 15 个进程的最大峰值 |
 
-1. **按各自默认配置：Rust 峰值 932MB > Python 581MB。** 「降低内存占用」不成立。
-   Python 默认更省，是因为 `rapidocr_onnxruntime` 在 `OrtInferSession` 里写死了
-   `enable_cpu_mem_arena = False`（`utils/infer_engine.py`），而 Rust/C++ 用 ORT 默认（开）。
-2. **把 arena 拉平（都开）：Rust 932MB vs Python 1162MB，Rust 低 ~20%。** 这才是
-   「同配置下的语言/实现差异」，量级是 20%，不是数倍。
-3. **Rust v3 与 C++ v3 的峰值/均值几乎逐位相同（757/729 vs 758/729）。** 同一份 ORT
-   配置下，Rust 与 C++ 的内存开销没有差别 —— 说明**内存由 ORT arena + 模型/激活占用决定，
-   和宿主语言无关**。Python 运行时全部算上（裸解释器 13MB、`import onnxruntime` 峰值 46MB）
-   也只有几十 MB，对比 900MB 级的 ORT 占用是噪声。
-4. Python 的「平均 370MB < 峰值 581MB」说明关掉 arena 后内存会还给系统；Rust/C++ 开着
-   arena 时 RSS 基本贴着峰值不回落。这也解释了为什么 Rust 的均值反而更高。
+**同配置 2×2（v4，4 线程，同一帧）：**
 
-> 归因结论：**省内存的功劳不属于「改用 Rust」，属于 ORT 的 arena 配置。** 想真的省，
-> 应该关掉 Rust 侧的 CPU arena（本仓库当前没这个开关），而不是重写语言。
+| | arena **开**（Rust/C++ 的默认） | arena **关**（Python 包内默认） |
+| --- | --- | --- |
+| Rust v4 | 358ms / 峰值 **932** / 均值 916 | 383ms / 峰值 **634** / 均值 463 |
+| Python v4 | 437ms / 峰值 **1162** / 均值 1025 | 447ms / 峰值 **581** / 均值 370 |
+| Rust 相对 Python | **−20% 峰值 / −11% 均值** | **+9% 峰值 / +25% 均值** |
+
+对齐配置再比，方法上是对的——但**两种对齐给出相反符号**：
+
+1. **对齐到 arena 开**：Rust 峰值低 20%（932 vs 1162）。这是「同配置」下对 Rust 有利的格子。
+2. **对齐到 arena 关**：Rust 峰值高 9%（634 vs 581）。这是「同配置」下对 Rust 不利的格子。
+   而 arena 关恰好是 **Python 的产品默认**（`rapidocr_onnxruntime` 在 `OrtInferSession`
+   里写死 `enable_cpu_mem_arena = False`）。
+
+所以内存排名不是「Rust vs Python」的固有属性，而是**由 arena 这一个开关决定的**：
+
+- 关 arena 省下的量：Rust **−298MB**（932→634），Python **−581MB**（1162→581）。
+- 两者残余差：arena 开时 230MB，arena 关时 53MB。
+- 即 **arena 的影响是「语言/实现差异」的 1.3–6 倍**，并且 Python 从关 arena 里获益更大，
+  足以把符号翻过来。
+
+残余差为什么是 Python 更吃亏（开 arena 时 1162 vs 932）？方向可以解释为「3 个 session +
+numpy/cv2 的临时缓冲在 arena 下更不容易归还」，但**没有逐项拆解**，见 §8 局限 8。
+
+**旁证：Rust 与 C++ 在同一配置（arena 开、v3）下几乎逐位相同（757/729 vs 758/729）。**
+说明内存由 ORT arena + 模型/激活占用决定，宿主语言只值几十 MB（裸 Python 13MB、
+`import onnxruntime` 峰值 46MB），对比 900MB 级占用是噪声。
+
+> 结论（修正版）：**「Rust 比 Python 省内存」不是一个稳健结论**——对齐到 arena 开是 −20%，
+> 对齐到 Python 的默认（arena 关）是 +9%。能确定的只有一条：**arena 开关值 300–580MB，
+> 远大于 Rust/Python 的残余差**。想真正降内存，先把 Rust 侧的 CPU arena 关掉
+> （`RAPIDOCR_CPU_ARENA=0`，实测 932→634MB，代价是单帧 +7% 耗时），而不是寄希望于换语言。
 
 ### 3.3 识别质量（本次只做单帧一致性）
 
@@ -184,8 +207,11 @@
 | 配置 | 三轮均值 | 轮间波动 |
 | --- | --- | ---: |
 | Rust v4 | 369.4 / 353.3 / 352.3 ms | 4.9% |
+| Rust v4（arena 关） | 448.8 / 385.4 / 381.5 / 382.6 / 379.2 ms（5 轮） | 18.3%（r1 撞负载尖峰） |
 | Rust v3 | 223.4 / 223.7 / 218.5 ms | 2.4% |
+| Rust v3（arena 关） | 268.8 / 249.7 / 245.6 ms | 9.5%（r1 同上） |
 | Python v4 | 447.7 / 448.5 / 446.0 ms | 0.6% |
+| Python v4（arena 开） | 436.6 / 437.3 / 435.5 ms | 0.4% |
 | Python one-shot | 830.9 / 837.4 / 826.8 ms | 1.3% |
 
 第一轮 loadavg 最低但 Rust 最慢（首次触页 + 桌面其它进程），故 Rust 的 358ms 略偏高；
@@ -240,6 +266,19 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 **结论：这句把两个不同工作的技术栈串了。** 建议拆成两条业绩（字幕 OCR / 语音侧 burn 迁移），
 或把 burn 从字幕 OCR 这句里删掉。
 
+### 4.4 内存：对齐配置之后，仍然不是「语言收益」
+
+把 arena 拉平后（§3.2）可以确认两件事：
+
+1. **arena 开关值 300–580MB**（Rust 932→634，Python 1162→581），远大于两者的残余差
+   （53–230MB）。想降内存，第一优先级是关 arena，不是换语言。
+2. **关掉 arena 的代价是单帧 +7%**（Rust v4 358→383ms）。也就是说「省内存」和「最快」
+   在这个实现里是二选一，不能同时宣称。
+
+**给仓库的可执行建议**（本次未改默认，避免影响既有基准）：如果线上更在意常驻内存，
+可以把 `packages/rapidocr_ort/src/ep.rs` 的 CPU 分支默认改成 arena 关——实测峰值
+932→634MB（−32%），单帧 358→383ms（+7%）。这比「用 Rust 重写」带来的内存变化更确定。
+
 ---
 
 ## 5. 结论：哪些说法成立
@@ -248,12 +287,12 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 | --- | --- | --- |
 | 「用 ort-rs / opencv-rs 替代 Python」 | ✅ 成立 | 代码结构；`rapidocr_ort` 依赖 `ort` + `opencv` |
 | 「用 burn 替代…（字幕 OCR）」 | ❌ 不成立 | vision-lab 无 burn 使用；burn 在 vox-lab 语音侧 |
-| 「降低处理耗时」 | ✅ 部分成立 | 同权重同线程 **1.25×**（447→358ms）；相对每帧起进程 **2.32×**（832→358ms） |
-| 「降低内存占用」 | ❌ 不成立（按各自默认配置） | Rust 932MB vs Python 581MB 峰值；同 ORT 配置下才是 932 vs 1162（-20%） |
+| 「降低处理耗时」 | ✅ 部分成立 | 同权重同线程 **1.22–1.25×**（447→358ms）；相对每帧起进程 **2.32×**（832→358ms） |
+| 「降低内存占用」 | ⚠️ **不稳健：同配置对齐后方向会翻转** | 都开 arena：932 vs 1162（Rust −20%）；都关 arena（Python 默认）：634 vs 581（Rust **+9%**）。arena 一项值 300–580MB，远超残余差 |
 | 「替代原先 Python 中某些多模型串行的流程」 | ⚠️ 表述含糊 | Python 侧 `engine` 本身就是常驻的 3 模型串行；「每帧重建」只发生在 CLI 每帧起进程的调用方式 |
 
-**如果只能留一句话：保留「快」，删掉「省内存」，删掉 burn，并把「多模型串行」改成具体的
-调用方式差异（进程/session 重建）。**
+**如果只能留一句话：保留「快」，内存要么删掉、要么按 §6 的写法把配置条件写死，删掉 burn，
+并把「多模型串行」改成具体的调用方式差异（进程/session 重建）。**
 
 ---
 
@@ -271,6 +310,16 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 > 单帧 832→358ms（2.3×）；同权重同线程的纯推理 447→358ms（1.25×）。收益来自常驻 session
 > 与批处理，而非语言本身——作为对照，C++ 直连 ORT 在同权重下为 256ms（Rust 221ms）。
 
+### 候选 C（要写内存时的唯一站得住的写法：把配置条件写死）
+
+> 字幕 OCR 从 Python 迁到 Rust 常驻 ORT session，并把 ONNX Runtime 的 CPU arena 纳入
+> 调优：关掉 arena 后峰值 RSS 从 932MB 降到 634MB（单帧耗时 +7%）；同 arena 配置下
+> 与 Python 实现相比，峰值 RSS 1162→932MB（−20%）、单帧 437→358ms（1.22×）。
+>
+> ⚠️ 这句的前提是「同 arena 配置」，而 arena 关掉（Python 的产品默认）时是 634 vs 581
+> （Rust 反而高 9%）。面试官若追问「关掉 arena 再比呢」，候选 C 会被打穿——**能接受的
+> 只有候选 A/B；候选 C 仅在你能现场讲清 arena 效应时使用。**
+
 ### 数字证据等级
 
 | 数字 | 证据 | 备注 |
@@ -278,11 +327,11 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 | 447ms（Python v4，批量，4 线程） | ✅ 本次实测，120 样本，波动 0.6% | 单帧 `0020000.jpg` |
 | 358ms（Rust v4，4 线程） | ✅ 本次实测，120 样本，波动 4.9% | 单帧同一图 |
 | 832ms（Python 每帧一进程） | ✅ 本次实测，15 样本 | 旧 590ms 是另一台机器/另一版本的同类口径 |
-| 1.25× / 2.32× | ✅ 由上三行相除 | 同口径相除，未混用 |
+| 1.22–1.25× / 2.32× | ✅ 由上三行相除 | 同口径相除，未混用 |
 | 256ms（C++ v3）/ 221ms（Rust v3） | ✅ 本次实测，120 样本 | 同权重同线程 |
-| 932MB / 581MB（Rust / Python 峰值 RSS） | ✅ 本次实测，3 轮 | 各自默认 ORT 配置 |
-| 1162MB（Python 开 arena） | ✅ 本次实测（诊断配置，非产品默认） | 仅用于归因 |
-| 「降低内存占用」 | ❌ **无证据支持** | 按默认配置 Rust 更高 |
+| 932MB / 581MB（Rust / Python 峰值 RSS，各自默认） | ✅ 本次实测，3 轮 | 默认不同，属「未对齐」 |
+| 1162MB（Python 开 arena）/ 634MB（Rust 关 arena） | ✅ 本次实测，3 轮 / 5 轮 | 同配置对齐的两格，方向相反 |
+| 「降低内存占用」（无条件表述） | ❌ **不能写** | 方向取决于 arena，见 §3.2 |
 | 全视频 CER 0.36% / 0.72% | ⚠️ 引用既有 README，**本次未复测** | 且 0.72% 是 v3；v4 未入文档 |
 | 「多模型串行」「burn」 | ❌ 与代码不符 | 见 §4.3 |
 
@@ -294,18 +343,30 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 # 1) 生成「同一帧 ×40 硬链接」目录（不跑全视频）
 bash tests/bench/subtitle_ocr/rust-vs-py/create_frames.sh
 
-# 2) 三实现 × 3 轮（含逐帧计时 + 外部 RSS 采样）
+# 2) 三实现 × 3 轮（含逐帧计时 + 外部 RSS 采样；含 arena 开/关两组）
 bash tests/bench/subtitle_ocr/rust-vs-py/run.sh 3
 
 # 3) 汇总表
 python3 tests/bench/subtitle_ocr/rust-vs-py/summarize.py
 ```
 
+单独跑某一格（例如 Rust 关 arena）：
+
+```bash
+RAPIDOCR_CPU_ARENA=0 ./target/release/probe --dir packages/tmp/ocr-bench/oneframe-replay40 \
+  --model v4 --reps 1 --warmup 1 --threshold 0.45 --subtitle-only --out /tmp/rust-arenaoff.json
+```
+
+> `RAPIDOCR_CPU_ARENA=0` 是为归因实验新增的 **env 探针开关**（`packages/rapidocr_ort/src/ep.rs`）：
+> 设置时显式注册 CPU EP 并 `DisableCpuMemArena`；**不设置时行为与之前完全一致**（不注册 EP、
+> 走 ORT 默认）。这是本次唯一一处被测代码改动，只为内存探针，默认路径未变。
+
 文件：
 
 | 文件 | 作用 |
 | --- | --- |
 | `tests/bench/subtitle_ocr/src/bin/probe.rs` | Rust 单帧探针（计时，未改实现逻辑） |
+| `packages/rapidocr_ort/src/ep.rs` | 新增 `RAPIDOCR_CPU_ARENA=0` arena 探针（默认不生效） |
 | `tests/bench/subtitle_ocr/rust-vs-py/monitor.py` | 子进程峰值/平均 RSS 采样 |
 | `tests/bench/subtitle_ocr/rust-vs-py/py_batch.py` | Python 批量/one-shot 驱动；`--arena-on` 为归因诊断开关 |
 | `tests/bench/subtitle_ocr/rust-vs-py/run.sh` | 跑批（`taskset 0-3`） |
@@ -319,11 +380,17 @@ python3 tests/bench/subtitle_ocr/rust-vs-py/summarize.py
 1. **只测 1 帧**（按要求）：这是「同一帧重复 40 次」的稳态单帧成本，不代表全视频分布；
    不同帧的字幕框数量不同，rec 开销会变（本例仅 1 个框，rec 21ms，偏轻）。
 2. **Rust 与 Python 是 v4，C++ 是 v3**；三者 ORT 版本为 1.28 / 1.28 / **1.24.4**。
-3. **arena 默认不同**（Python 关、Rust/C++ 开），这是内存结论的关键变量，不可忽略。
+3. **arena 默认不同**（Python 关、Rust/C++ 开）。已补测两格对齐（§3.2），但结论是方向翻转：
+   内存不能无条件归因给语言。
 4. Python 的 one-shot 口径包含解释器启动与 `import cv2`，与「Rust 常驻进程」不是同一件事，
    只能作为「旧调用方式」的证据，不能当作「Python 推理慢」。
-5. 桌面有常驻负载（loadavg 2.4→7.3），逐轮波动最大 4.9%；绝对值会有 ±5% 漂移。
+5. 桌面有常驻负载（loadavg 2.4→7.3）：arena-off 的 Rust 第一轮撞上尖峰（449ms vs 379–385ms），
+   表里取中位轮值；其余配置逐轮波动 ≤4.9%。绝对值仍有 ±5% 漂移。
 6. 线程数固定 4，未测其它值（§3.4 只做了 auto 的旁证）。
 7. `subtitle_only` 的窗口定义三实现不完全一致：Python 用绝对像素 `620 ≤ y ≤ 700`，
    Rust/C++ 用比例 `0.85 ≤ y/h ≤ 0.99`（720p 下 612–713px）。本帧的字幕框（y 647–682）
    两种窗口都包含，故不影响本次单帧结果；换帧复核时需注意。
+8. **arena 差异的机制没有逐项拆解**：只确认了「开关值 300–580MB」「Rust 与 C++ 同配置下
+   持平」，没有做 `smaps_rollup`/各 mapping 的归因（heap vs arena vs 模型权重）。因此
+   「开 arena 时 Python 为何比 Rust 多吃 230MB」目前只有方向性解释，不算结论。
+9. Rust 关 arena 的耗时数据只有 5 轮（含 1 轮负载尖峰），「+7% 耗时」是粗估，不是精确值。

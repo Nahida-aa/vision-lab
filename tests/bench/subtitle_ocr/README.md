@@ -253,8 +253,10 @@ CER 也降到 cpp 的 0.36%。两者都需落地，"完美对齐"才算真正完
 驱动脚本在 `rust-vs-py/`。
 
 结论摘要：同权重同 4 线程的纯单帧处理 Python 447ms → Rust 358ms（1.25×）；相对「每帧
-起进程、重建 3 个 ORT session」的旧调用方式为 832ms → 358ms（2.32×）；**内存按各自默认
-配置 Rust 更高（932MB vs 581MB 峰值），「省内存」不成立**。
+起进程、重建 3 个 ORT session」的旧调用方式为 832ms → 358ms（2.32×）。内存**同配置
+对齐后方向会翻转**：都开 ORT arena 时 Rust 932MB < Python 1162MB（−20%），都关时
+Rust 634MB > Python 581MB（+9%）——arena 一个开关值 300–580MB，故「省内存」不能归因给
+语言；Rust 关 arena（`RAPIDOCR_CPU_ARENA=0`）峰值 932→634MB、单帧 +7%。
 
 ## 性能注意事项
 
