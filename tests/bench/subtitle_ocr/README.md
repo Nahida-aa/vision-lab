@@ -252,9 +252,9 @@ CER 也降到 cpp 的 0.36%。两者都需落地，"完美对齐"才算真正完
 [`docs/benchmark-rust-vs-py-single-frame.md`](../../../docs/benchmark-rust-vs-py-single-frame.md)，
 驱动脚本在 `rust-vs-py/`。
 
-结论摘要：同权重同 4 线程的纯单帧处理，v4 为 Python 447ms → Rust 358ms（1.25×），v3 为
-327ms → 222ms（1.48×）；相对「每帧起进程、重建 3 个 ORT session」的旧调用方式为
-832ms → 358ms（2.32×）。**arena 开在四组配置里都更快（+2.5~15%），是速度优先该选的格**；
+结论摘要：同权重同 4 线程的纯单帧处理，v4 为 Python 447ms → Rust 358ms（1.25×）；v3 的
+迁移链为 Python 327→C++ 256→Rust 222ms（同 arena 开：304→256→222ms，两段 1.19× / 1.15×，
+累计 1.37×）。相对「每帧起进程、重建 3 个 ORT session」的旧调用方式为 832ms → 358ms（2.32×）。**arena 开在四组配置里都更快（+2.5~15%），是速度优先该选的格**；
 在该同配置下 Rust 同时更低内存：v4 峰值 1162→932MB（−20%）、v3 905→757MB（−16%）。
 若把 arena 关（Python 包内默认）当基准，v4 翻转为 634 vs 581（Rust +9%）——故任何内存
 表述都必须带「同 arena（开）」条件；arena 一个开关值 300–580MB，不是语言差异。
