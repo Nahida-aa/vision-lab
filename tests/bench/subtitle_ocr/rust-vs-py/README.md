@@ -25,7 +25,7 @@ python3 summarize.py | tee results/summary.md
 | `create_frames.sh` | 单帧 ×40 硬链接目录（默认取 `0020000.jpg`） |
 | `run.sh` | 跑 rust v4/v3、cpp v3、python 批量、python one-shot |
 | `monitor.py` | 子进程峰值（`ru_maxrss`）/ 平均（`/proc` 采样）RSS |
-| `py_batch.py` | python 驱动：批量常驻 engine / 每帧一进程；`--arena-on` 是归因诊断开关 |
+| `py_batch.py` | python 驱动：批量常驻 engine / 每帧一进程；`--models v3` 指仓库 v3 权重（字典自动转 txt）；`--arena-on` 是归因诊断开关 |
 | `summarize.py` | 出 avg/P50/P95 + 内存表 |
 | `results/` | 原始 JSON、cpp stderr、`summary.md` |
 | `../src/bin/probe.rs` | Rust 单帧计时探针（调 `subtitle_ocr::ocr_entry`，不改实现逻辑） |
@@ -39,3 +39,5 @@ python3 summarize.py | tee results/summary.md
 - python 批量 vs one-shot 是**两种调用方式**，不是同一口径的两个数字。
 - 内存要**同 arena 配置**比：`RAPIDOCR_CPU_ARENA=0` 让 Rust 走 `DisableCpuMemArena`
   （等价 Python 包内的 `enable_cpu_mem_arena=False`）；不设则走 ORT 默认（arena 开）。
+- 速度也受 arena 影响：开比关快 2.5–15%（四组配置一致）。速度优先时取 arena 开，该格
+  Rust 与 Python 的 v4/v3 两套权重都是「更快 + 峰值更低」。

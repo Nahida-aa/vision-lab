@@ -22,15 +22,54 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 PY_PKG = os.path.join(REPO, "packages/subtitle_ocr_py")
 VENV_PY = os.path.join(PY_PKG, ".venv/bin/python")
 WARMUP = 2
+MODEL_DIR = os.path.join(REPO, "data/models/rapidocr")
 
 
-def run_batch(frame, reps, threads, text_score, subtitle_only, arena_on=False):
+def _v3_keys_txt():
+    """把仓库的 `ppocr_keys.json` 转成 Python 端能吃的纯文本字典。
+
+    两边字典格式不同，且不能直接喂：
+    - 仓库/C++/Rust 用 JSON 数组，6624 个元素，第 0 位 `""` 是 CTC blank 占位；
+    - Python 的 `CTCLabelDecode` 只读「每行一个字符」的 txt，并会**自己**在头部插
+      `"blank"`、尾部插 `" "`。
+    所以这里去掉 JSON 的第 0 位占位符再逐行写出 → 6623 行，Python 补两位后正好 6625，
+    与 v3 rec 模型的输出类别数一致（否则会 IndexError）。
+    """
+    path = os.path.join(tempfile.gettempdir(), "ppocr_keys_v3_py.txt")
+    if not os.path.exists(path):
+        with open(os.path.join(MODEL_DIR, "ppocr_keys.json"), encoding="utf-8") as f:
+            chars = json.load(f)
+        if chars and chars[0] == "":
+            chars = chars[1:]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(chars) + "\n")
+    return path
+
+
+def model_kwargs(model):
+    """返回指向 v3 权重的 RapidOCR 构造参数（v4 用包内自带权重，无需覆盖）。
+
+    Python 包内只带 v4；其 det/rec 与 `data/models/rapidocr` 的 v4 **sha256 完全一致**，
+    所以 v4 不传任何路径即等同仓库权重。v3 则显式指向仓库里的 PP-OCRv3 det/rec 与
+    仓库字典（`ppocr_keys.json`）；cls 两边是同一个文件（哈希一致）。
+    """
+    if model != "v3":
+        return {}
+    return {
+        "det_model_path": os.path.join(MODEL_DIR, "ch_PP-OCRv3_det_infer.onnx"),
+        "rec_model_path": os.path.join(MODEL_DIR, "ch_PP-OCRv3_rec_infer.onnx"),
+        "rec_keys_path": _v3_keys_txt(),
+    }
+
+
+def run_batch(frame, reps, threads, text_score, subtitle_only, arena_on=False, model="v4"):
     sys.path.insert(0, PY_PKG)
 
     if arena_on:
@@ -54,8 +93,11 @@ def run_batch(frame, reps, threads, text_score, subtitle_only, arena_on=False):
 
     base = rr.RapidOCR
 
+    extra = model_kwargs(model)
+
     def patched(*a, **kw):
         kw.setdefault("intra_op_num_threads", threads)
+        kw.update(extra)
         return base(*a, **kw)
 
     rr.RapidOCR = patched
@@ -86,6 +128,7 @@ def run_batch(frame, reps, threads, text_score, subtitle_only, arena_on=False):
     return {
         "impl": "python",
         "mode": "batch",
+        "model": model,
         "arena_on": arena_on,
         "threads": threads,
         "frame": os.path.basename(frame),
@@ -137,13 +180,18 @@ def main():
     ap.add_argument("--subtitle-only", action="store_true", default=True)
     ap.add_argument("--oneshot", action="store_true")
     ap.add_argument("--arena-on", action="store_true")
+    ap.add_argument("--models", choices=["v3", "v4"], default="v4",
+                    help="v4 = 包内自带权重（与仓库 v4 sha256 一致）；v3 = 显式指向仓库 v3 权重")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
     if a.oneshot:
+        if a.models != "v4":
+            ap.error("--oneshot 只为「旧调用方式」口径服务，仅支持 v4；v3 请用批量模式")
         out = run_oneshot(a.frame, a.reps, a.text_score, a.subtitle_only)
     else:
-        out = run_batch(a.frame, a.reps, a.threads, a.text_score, a.subtitle_only, a.arena_on)
+        out = run_batch(a.frame, a.reps, a.threads, a.text_score, a.subtitle_only,
+                        a.arena_on, a.models)
 
     with open(a.out, "w") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)

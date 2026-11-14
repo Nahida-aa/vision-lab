@@ -92,6 +92,16 @@ for r in $(seq 1 "$REPS"); do
       --frame "$FRAME" --reps "$SAMPLES" --threads 4 --arena-on \
       --out "$RES/py-v4-arenaon-r$r.json" >/dev/null
 
+  # python v3（显式指向仓库 v3 权重）：与 rust-v3 / cpp-v3 同权重
+  python3 "$HERE/monitor.py" "$RES/py-v3-r$r.mem.json" -- \
+    taskset -c "$CPUSET" packages/subtitle_ocr_py/.venv/bin/python "$HERE/py_batch.py" \
+      --frame "$FRAME" --reps "$SAMPLES" --threads 4 --models v3 \
+      --out "$RES/py-v3-r$r.json" >/dev/null
+  python3 "$HERE/monitor.py" "$RES/py-v3-arenaon-r$r.mem.json" -- \
+    taskset -c "$CPUSET" packages/subtitle_ocr_py/.venv/bin/python "$HERE/py_batch.py" \
+      --frame "$FRAME" --reps "$SAMPLES" --threads 4 --models v3 --arena-on \
+      --out "$RES/py-v3-arenaon-r$r.json" >/dev/null
+
   # python v4：每帧一个进程（旧基准口径，5 次足够）
   taskset -c "$CPUSET" packages/subtitle_ocr_py/.venv/bin/python "$HERE/py_batch.py" \
     --frame "$FRAME" --reps 5 --oneshot --out "$RES/py-v4-oneshot-r$r.json" >/dev/null

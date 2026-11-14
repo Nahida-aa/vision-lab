@@ -1,0 +1,28 @@
+{
+  "cmd": [
+    "taskset",
+    "-c",
+    "0-3",
+    "packages/subtitle_ocr_py/.venv/bin/python",
+    "tests/bench/subtitle_ocr/rust-vs-py/py_batch.py",
+    "--frame",
+    "packages/tmp/ocr-bench/oneframe-replay40/0000000.jpg",
+    "--reps",
+    "40",
+    "--threads",
+    "4",
+    "--models",
+    "v3",
+    "--arena-on",
+    "--out",
+    "tests/bench/subtitle_ocr/rust-vs-py/results/py-v3-arenaon-r3.json"
+  ],
+  "exit_code": 0,
+  "wall_ms": 12471.409056000994,
+  "peak_rss_mb": 971.14453125,
+  "mean_rss_mb": 831.8218468698855,
+  "samples": 611,
+  "threads_max": 19,
+  "user_s": 45.241593,
+  "sys_s": 0.5969639999999999
+}
