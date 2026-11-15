@@ -72,7 +72,7 @@ impl ExecutionBackend {
                 // 关掉 CPU mem arena，与 Python `rapidocr_onnxruntime` 的
                 // `enable_cpu_mem_arena=False` 对齐。不设该变量时保持原行为（不注册 EP，
                 // 走 ORT 默认 = arena 开），故不影响线上路径与既有基准。
-                // 动机与数据见 docs/benchmark-rust-vs-py-single-frame.md §3.2。
+                // 动机与数据见 docs/ocr/ppocr/benchmark-rust-vs-py-single-frame.md §3.3。
                 match std::env::var("RAPIDOCR_CPU_ARENA").ok().as_deref() {
                     Some("0") => builder
                         .with_execution_providers([ort::ep::CPU::default()

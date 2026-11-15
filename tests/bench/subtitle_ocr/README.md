@@ -249,7 +249,7 @@ CER 也降到 cpp 的 0.36%。两者都需落地，"完美对齐"才算真正完
 全视频基准回答「质量 + RTF」，但回答不了「Rust 相对 Python 到底快多少/省不省内存」——
 因为 `--dir` 的 `avg/frame = 墙钟 ÷ 帧数` 混入了模型加载与进程模型差异。为此另有一组
 **只测同一帧**（不跑全视频）的实测：逐帧进程内计时 + 外部 RSS 采样，口径与结论见
-[`docs/benchmark-rust-vs-py-single-frame.md`](../../../docs/benchmark-rust-vs-py-single-frame.md)，
+[`docs/ocr/ppocr/benchmark-rust-vs-py-single-frame.md`](../../../docs/ocr/ppocr/benchmark-rust-vs-py-single-frame.md)，
 驱动脚本在 `rust-vs-py/`。
 
 结论摘要（主表取 2026-11-15 11:52 的全量会话，轮间波动 0.8–4%）：同权重同 4 线程

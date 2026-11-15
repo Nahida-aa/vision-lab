@@ -1,6 +1,6 @@
 # rust-vs-py：单帧耗时 / 内存实测驱动
 
-对应文档：[`docs/benchmark-rust-vs-py-single-frame.md`](../../../../docs/benchmark-rust-vs-py-single-frame.md)
+对应文档：[`docs/ocr/ppocr/benchmark-rust-vs-py-single-frame.md`](../../../../docs/ocr/ppocr/benchmark-rust-vs-py-single-frame.md)
 
 只测**同一帧**（不跑全视频），用于回答「Rust 相对 Python 快多少、省不省内存」。
 与 `just bench`（全视频、`--dir` 墙钟）是两套口径，不要混用。
