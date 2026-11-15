@@ -85,25 +85,38 @@ fn main() -> Result<()> {
         let _ = engine.detect(&roi)?;
     }
 
+    // 各阶段**分开循环**测量（不在同一轮里先跑 det_raw 再跑 detect）：否则
+    // detect 里的 det 紧跟在 det_raw 的 det 之后，arena/缓存全热，会把
+    // 「detect − det_raw」低估成 rec。分开后每轮 det 的前置状态都接近真实流水线。
     let mut t_pre = Vec::with_capacity(reps);
     let mut t_raw = Vec::with_capacity(reps);
     let mut t_full = Vec::with_capacity(reps);
     let mut t_load = Vec::with_capacity(reps);
     let mut t_roi = Vec::with_capacity(reps);
 
+    let mut last_res = Vec::new();
+    for _ in 0..reps {
+        let t = Instant::now();
+        last_res = engine.detect(&roi)?;
+        t_full.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    if last_res.is_empty() {
+        anyhow::bail!("detect 未返回任何文本框");
+    }
+
+    for _ in 0..reps {
+        let t = Instant::now();
+        let _boxes = engine.detect_raw_boxes(&roi);
+        t_raw.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+
     for _ in 0..reps {
         let t = Instant::now();
         let _ = preprocess::preprocess_det(&roi);
         t_pre.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
 
-        let t = Instant::now();
-        let _boxes = engine.detect_raw_boxes(&roi);
-        t_raw.push(t.elapsed().as_secs_f64() * 1000.0);
-
-        let t = Instant::now();
-        let res = engine.detect(&roi)?;
-        t_full.push(t.elapsed().as_secs_f64() * 1000.0);
-
+    for _ in 0..reps {
         let t = Instant::now();
         let img = rapidocr_ort::load_image(&frame_path)?;
         t_load.push(t.elapsed().as_secs_f64() * 1000.0);
@@ -113,10 +126,6 @@ fn main() -> Result<()> {
         let r = rgb.slice(s![y_offset.., .., ..]).to_owned();
         t_roi.push(t.elapsed().as_secs_f64() * 1000.0);
         drop(r);
-
-        if res.is_empty() {
-            anyhow::bail!("detect 未返回任何文本框");
-        }
     }
 
     let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;

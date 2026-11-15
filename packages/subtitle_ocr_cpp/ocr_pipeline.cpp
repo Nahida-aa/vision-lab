@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <sstream>
 #include <iomanip>
 
@@ -603,6 +604,13 @@ static OcrImgResult runOcr(
 {
     using clock = std::chrono::high_resolution_clock;
 
+    // 分相计时探针（默认关闭，`OCR_PHASE_MS=1` 打开）：把 detMs 拆成
+    // 预处理/推理，并把原先不入账的 warp/cls/rec 预处理单独计时。
+    // 只为归因测量，默认输出与行为不变；数据见
+    // docs/ocr/ppocr/benchmark-rust-vs-py-single-frame.md §4.6。
+    const bool phaseProbe = std::getenv("OCR_PHASE_MS") != nullptr;
+    double detPreMs = 0, detRunMs = 0, warpMs = 0, clsPreMs = 0, clsRunMs = 0, recPreMs = 0;
+
     OcrImgResult result;
     result.charListLoadMs = result.imageLoadMs = result.modelLoadMs = 0;
     result.detMs = result.postMs = result.recMs = 0;
@@ -617,7 +625,9 @@ static OcrImgResult runOcr(
     // --- Detection ---
     auto t0 = clock::now();
     std::cerr << "[OCR] preprocess det..." << std::endl;
+    auto tPre0 = clock::now();
     auto detPrep = preprocessDet(img.data.data(), img.h, img.w, subtitleOnly);
+    detPreMs = std::chrono::duration<double, std::milli>(clock::now() - tPre0).count();
 
     // Det inference
     std::cerr << "[OCR] det inference " << detPrep.resizedH << "x" << detPrep.resizedW << "..." << std::endl;
@@ -630,8 +640,10 @@ static OcrImgResult runOcr(
     std::vector<const char*> detInputNames = {detInNames[0].c_str()};
     std::vector<const char*> detOutputNames = {detOutNames[0].c_str()};
 
+    auto tRun0 = clock::now();
     auto detOut = detSession.Run(Ort::RunOptions{nullptr}, detInputNames.data(), &detInput, 1,
                                  detOutputNames.data(), 1);
+    detRunMs = std::chrono::duration<double, std::milli>(clock::now() - tRun0).count();
     float* heatmapData = detOut[0].GetTensorMutableData<float>();
     auto detShapeOut = detOut[0].GetTensorTypeAndShapeInfo().GetShape();
     int outH = (int)detShapeOut[2], outW = (int)detShapeOut[3];
@@ -719,12 +731,16 @@ static OcrImgResult runOcr(
             p.x = std::max(0.0f, std::min((float)img.w - 1.0f, p.x));
             p.y = std::max(0.0f, std::min((float)img.h - 1.0f, p.y));
         }
+        auto tw0 = clock::now();
         Image crop = warpPerspectiveCrop(img, orderedPts);
+        warpMs += std::chrono::duration<double, std::milli>(clock::now() - tw0).count();
         if (crop.w < 4 || crop.h < 4) continue;
         boxPts = orderedPts;
 
         // Cls inference
+        auto tcp0 = clock::now();
         auto clsTensor = preprocessCls(crop.data.data(), crop.h, crop.w);
+        clsPreMs += std::chrono::duration<double, std::milli>(clock::now() - tcp0).count();
         std::vector<int64_t> clsShape = {1, 3, CLS_H, CLS_W};
         Ort::Value clsInputVal = Ort::Value::CreateTensor<float>(
             memInfo, clsTensor.data(), clsTensor.size(), clsShape.data(), clsShape.size());
@@ -734,8 +750,10 @@ static OcrImgResult runOcr(
         std::vector<const char*> clsInputNames = {clsInNames[0].c_str()};
         std::vector<const char*> clsOutputNames = {clsOutNames[0].c_str()};
 
+        auto tcr0 = clock::now();
         auto clsOut = clsSession.Run(Ort::RunOptions{nullptr}, clsInputNames.data(), &clsInputVal, 1,
                                      clsOutputNames.data(), 1);
+        clsRunMs += std::chrono::duration<double, std::milli>(clock::now() - tcr0).count();
         float* clsData = clsOut[0].GetTensorMutableData<float>();
         bool rotate = clsData[0] < clsData[1];
 
@@ -743,7 +761,9 @@ static OcrImgResult runOcr(
         Image recCrop = rotate ? rotate180(crop) : crop;
 
         // Rec inference
+        auto trp0 = clock::now();
         auto recPrep = preprocessRec(recCrop.data.data(), recCrop.h, recCrop.w);
+        recPreMs += std::chrono::duration<double, std::milli>(clock::now() - trp0).count();
 
         auto t3 = clock::now();
         std::vector<int64_t> recShape = {1, 3, REC_H, recPrep.width};
@@ -805,7 +825,150 @@ static OcrImgResult runOcr(
     result.totalMs = result.charListLoadMs + result.imageLoadMs + result.modelLoadMs +
                      result.detMs + result.postMs + result.recMs;
 
+    if (phaseProbe) {
+        std::cerr << std::fixed << std::setprecision(2)
+                  << "[phase] image=" << result.imageLoadMs
+                  << " detPre=" << detPreMs
+                  << " detRun=" << detRunMs
+                  << " post=" << result.postMs
+                  << " warp=" << warpMs
+                  << " clsPre=" << clsPreMs
+                  << " clsRun=" << clsRunMs
+                  << " recPre=" << recPreMs
+                  << " recRun=" << result.recMs
+                  << " nms=" << (useNms ? 1 : 0) << "\n";
+    }
+
     return result;
+}
+
+// --- 受控计时探针（默认关闭，`OCR_PROBE=1` 打开）-------------------------------
+//
+// 目的：定位「同 ORT 1.28.0 下 C++ 整帧比 Rust 慢」的三个分项，不改产品路径。
+// 与 `OCR_PHASE_MS`（逐帧分相）互补：分相看真实流水线里的耗时分布，本探针用
+// 受控循环隔离单个 `Run` 的成本，排除输入构造与 det→rec 切换的干扰。
+//
+// 输出 `[probe]` 行到 stderr，字段：
+//   detArena / detDevice —— 复用同一份已构造 det 输入，分别用
+//       `OrtArenaAllocator`（cpp 现用）与 `OrtDeviceAllocator`（Rust `ort` 的
+//       `MemoryInfo::default()`）的 MemoryInfo 创建 OrtValue，各跑 N 次 det `Run`。
+//       两者只差 MemoryInfo 的 allocator type，用来验证「输入 meminfo 导致 ORT
+//       内部拷贝/arena 路径不同」这一候选解释。
+//   detFresh —— 每轮重新 `CreateTensor`（模拟真实流水线每帧重建输入）。
+//   recAlone —— 单独反复跑 rec `Run`（前面没有 det），固定同一份 rec 输入。
+//   recAfterDet —— 每轮先跑 det `Run` 再跑 rec `Run`，只计 rec 的耗时。
+//       recAlone 与 recAfterDet 的差即 §4.6 的「det→rec 切换惩罚」。
+//
+// 注意：rec 用的是固定形状 {1,3,48,320} 的零张量（rec 宽度动态，固定值只用于
+// 同条件对比），不是真实帧的裁剪宽度；因此 rec 绝对值不代表真实流水线，只有
+// 两个 loop 之间的差值有意义。
+static void runProbe(const std::string& imagePath,
+                     Ort::Session& detSession, Ort::Session& recSession,
+                     Ort::MemoryInfo& memInfoArena,
+                     bool subtitleOnly)
+{
+    using clock = std::chrono::high_resolution_clock;
+    const int N = 40;
+    auto ms = [](clock::time_point a, clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    auto median = [](std::vector<double>& v) {
+        std::sort(v.begin(), v.end());
+        return v[v.size() / 2];
+    };
+
+    // ---- 构造一份固定的 det 输入（复用已有产品预处理，不改逻辑）----
+    auto img = loadImage(imagePath.c_str());
+    auto detPrep = preprocessDet(img.data.data(), img.h, img.w, subtitleOnly);
+    std::vector<int64_t> detShape = {1, 3, detPrep.resizedH, detPrep.resizedW};
+    auto detInNames = detSession.GetInputNames();
+    auto detOutNames = detSession.GetOutputNames();
+    std::vector<const char*> detInputNames = {detInNames[0].c_str()};
+    std::vector<const char*> detOutputNames = {detOutNames[0].c_str()};
+
+    // 两种 MemoryInfo：arena（cpp 现用）vs device（Rust ort 默认）。
+    auto memDevice = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
+    Ort::Value detInputArena = Ort::Value::CreateTensor<float>(
+        memInfoArena, detPrep.tensor.data(), detPrep.tensor.size(), detShape.data(), detShape.size());
+    Ort::Value detInputDevice = Ort::Value::CreateTensor<float>(
+        memDevice, detPrep.tensor.data(), detPrep.tensor.size(), detShape.data(), detShape.size());
+
+    // ---- 一份固定的 rec 输入 ----
+    const int recFixedW = 320;
+    std::vector<float> recFixed(3 * REC_H * recFixedW, 0.0f);
+    std::vector<int64_t> recShape = {1, 3, REC_H, recFixedW};
+    auto recInNames = recSession.GetInputNames();
+    auto recOutNames = recSession.GetOutputNames();
+    std::vector<const char*> recInputNames = {recInNames[0].c_str()};
+    std::vector<const char*> recOutputNames = {recOutNames[0].c_str()};
+    Ort::Value recInput = Ort::Value::CreateTensor<float>(
+        memInfoArena, recFixed.data(), recFixed.size(), recShape.data(), recShape.size());
+
+    // 预热：把三个（这里两个）session 的 kernel 焐热，避免首帧冷启动计入。
+    for (int i = 0; i < 3; ++i) {
+        detSession.Run(Ort::RunOptions{nullptr}, detInputNames.data(), &detInputArena, 1,
+                       detOutputNames.data(), 1);
+        recSession.Run(Ort::RunOptions{nullptr}, recInputNames.data(), &recInput, 1,
+                       recOutputNames.data(), 1);
+    }
+
+    // ---- A. det Run：arena meminfo / 复用输入 ----
+    std::vector<double> tArena;
+    for (int i = 0; i < N; ++i) {
+        auto t = clock::now();
+        detSession.Run(Ort::RunOptions{nullptr}, detInputNames.data(), &detInputArena, 1,
+                       detOutputNames.data(), 1);
+        tArena.push_back(ms(t, clock::now()));
+    }
+
+    // ---- B. det Run：device meminfo / 复用输入（只差 MemoryInfo）----
+    std::vector<double> tDevice;
+    for (int i = 0; i < N; ++i) {
+        auto t = clock::now();
+        detSession.Run(Ort::RunOptions{nullptr}, detInputNames.data(), &detInputDevice, 1,
+                       detOutputNames.data(), 1);
+        tDevice.push_back(ms(t, clock::now()));
+    }
+
+    // ---- C. det Run：每轮重新构造输入（模拟真实流水线）----
+    std::vector<double> tFresh;
+    for (int i = 0; i < N; ++i) {
+        auto t = clock::now();
+        Ort::Value v = Ort::Value::CreateTensor<float>(
+            memInfoArena, detPrep.tensor.data(), detPrep.tensor.size(), detShape.data(), detShape.size());
+        detSession.Run(Ort::RunOptions{nullptr}, detInputNames.data(), &v, 1,
+                       detOutputNames.data(), 1);
+        tFresh.push_back(ms(t, clock::now()));
+    }
+
+    // ---- D. rec Run 单独反复跑（前面没有 det）----
+    std::vector<double> tRecAlone;
+    for (int i = 0; i < N; ++i) {
+        auto t = clock::now();
+        recSession.Run(Ort::RunOptions{nullptr}, recInputNames.data(), &recInput, 1,
+                       recOutputNames.data(), 1);
+        tRecAlone.push_back(ms(t, clock::now()));
+    }
+
+    // ---- E. rec Run 紧跟 det（每轮 det→rec，只计 rec）----
+    std::vector<double> tRecAfterDet;
+    for (int i = 0; i < N; ++i) {
+        detSession.Run(Ort::RunOptions{nullptr}, detInputNames.data(), &detInputArena, 1,
+                       detOutputNames.data(), 1);
+        auto t = clock::now();
+        recSession.Run(Ort::RunOptions{nullptr}, recInputNames.data(), &recInput, 1,
+                       recOutputNames.data(), 1);
+        tRecAfterDet.push_back(ms(t, clock::now()));
+    }
+
+    std::cerr << std::fixed << std::setprecision(2)
+              << "[probe] detArena=" << median(tArena)
+              << " detDevice=" << median(tDevice)
+              << " detFresh=" << median(tFresh)
+              << " recAlone=" << median(tRecAlone)
+              << " recAfterDet=" << median(tRecAfterDet)
+              << " det_input_shape=" << detPrep.resizedH << "x" << detPrep.resizedW
+              << " N=" << N << "\n";
 }
 
 // --- JSON output ---
@@ -1052,6 +1215,13 @@ static int runMain(int argc, char* argv[]) {
             framePaths = listFrames(target);
         } else {
             framePaths.push_back(target);
+        }
+
+        // 受控计时探针（默认关闭）：OCR_PROBE=1 时用第一帧跑一组隔离计时后退出，
+        // 不进入正常逐帧输出，也不改默认路径。见 runProbe() 注释。
+        if (std::getenv("OCR_PROBE") != nullptr) {
+            runProbe(framePaths[0], detSession, recSession, memInfo, subtitleOnly);
+            return 0;
         }
 
         // Output: JSON array, one element per frame (or per 文件名时刻).
