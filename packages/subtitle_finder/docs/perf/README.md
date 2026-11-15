@@ -72,8 +72,13 @@
 
 ## 四、已确认的结论（避免重复实验）
 
-**热点**：`filter`（连通域 BFS / `second_filtration`）是绝对热点，其次是 `im_ff`。
-**优化 filter 是唯一能显著降每帧耗时的地方**（§6.3、§7）。
+**热点**：`filter` 是绝对热点（占变换 ~60%），其次是 `im_ff`（§6.3、§7）。
+但 ⚠️ **别把 filter 整体等同于「连通域 BFS」**：`state-machine-perf-analysis.md §6.4`
+的 filter 内部拆解显示最大头是 **`dilate(NE) ~5.8ms / 45%`**，连通域相关的
+`filter_by_not_intersected_figures 2.9ms + clear_small_symbols 2.4ms ≈ 5.3ms / 40%`，
+且 §6.4 结论「dilate 已接近最优，勿再微优化」。优化 filter 仍是降每帧耗时的主方向，
+但要先看清子函数占比，别默认「换连通域算法就能砍半」。
+连通域为何自写 BFS、是否对比过 findContours → [`../DECISIONS.md §5`](../DECISIONS.md)（结论：**无性能对比数据**）。
 
 **已落地且验证过的优化**（输出 `timeline.txt` 逐字节一致，§8.3）：诊断统计改
 `tracing::enabled!(DEBUG)` 守卫、`intersect_y_images_masked`、`y_in_range` 判定核、

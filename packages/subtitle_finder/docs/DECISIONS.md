@@ -23,7 +23,7 @@
 | 视频解码 | `opencv::videoio::VideoCapture`，逐帧 bt709 BGR | `frame.rs:3-9,19`、`Cargo.toml:29-31` |
 | BGR→YUV | `cv::cvtColor(COLOR_BGR2YUV)` | `imgops.rs:846` |
 | 形态学膨胀 | `cv::dilate`（3×3，iters=6） | `imgops.rs:212-240` |
-| 连通域 | 自写 8 邻接 BFS（**非** OpenCV findContours） | `filter.rs:40` |
+| 连通域 | 自写 8 邻接 BFS（**非** OpenCV findContours）；语义对齐 C++ `SearchClosedFigures(combine_diagonal_points=true)`，findContours **从未实现**（仅骨架 `todo!` 意图，见 §5 背景） | `filter.rs:38-46`、骨架 `838815b` / 首次实现 `903e427` |
 | 文本对齐 | `Center`（非 Any） | `filter.rs:11-14`、`todo.md` |
 | 并行模型 | **帧间并行**：解码线程 + N worker + reorder + `FrameCache` 滑动窗口 | `state.rs::TransformStream` / `FrameCache` |
 | 帧内并行 | **默认关闭**（`SF_PARALLEL=1` / `SF_THR=1` 才开） | `imgops.rs:16-40,766` |
@@ -122,9 +122,30 @@ AVX2 手写算子、OpenCV 解码/dilate/cvtColor 对齐。
 
 ### 算法层（当前目标下不可行，需先放宽对齐要求）
 
+#### 连通域决策背景（2026-11-15 回溯，勿再假设「有现成对比结论」）
+
+- **「用 OpenCV findContours 替代手写 CMyClosedFigure」从未落地**：`DESIGN.md:75` 写了
+  该策略，骨架 commit `838815b` 的 `filter.rs` 是 `todo!("用 OpenCV findContours")` 占位；
+  首次真正实现在 `903e427`，直接写成自写 8 邻接 BFS（`filter.rs:40`），该 commit message
+  未记录弃用理由。`git log -S'findContours' -- '*.rs'` 全历史无 subtitle_finder 调用，
+  仓库里唯一的 `cv::findContours` 在 `rapidocr_ort/src/det.rs:88`（OCR 检测框，另一链路）。
+- **源码里可查的选择理由是语义对齐，不是性能**：`filter.rs:39` 写「与
+  `SearchClosedFigures(combine_diagonal_points=true)` 等价」——C++ 的连通域是 8 邻接且
+  要保留每个域的 `points` 集合（供「与 mask 相交」「剔除小符号」消费），findContours
+  只给轮廓点、等价性难还原。`filter.rs:44-45` 唯一的对比是 **BFS 内部队列**
+  （FIFO VecDeque 按层展开缓存友好 vs 原 LIFO 栈跳跃），非与 findContours/C++ 的性能对比。
+- **没有任何性能对比数据**：无「自写 BFS vs findContours vs CMyClosedFigure」的 A/B 或
+  微基准；`src/bin/perfbench.rs` 只测 `compare_two_subs_optimal` / imgops 原语 /
+  `get_transformed_image` 整体，**无连通域专项基准**。
+- ⚠️ **更正「filter = 连通域 BFS」的笼统归因**：`state-machine-perf-analysis.md §6.4`
+  的 filter 内部拆解显示，最大头是 **`dilate(NE) ~5.8ms / 45%`**，连通域相关的
+  `filter_by_not_intersected_figures 2.9ms + clear_small_symbols 2.4ms ≈ 5.3ms / 40%`。
+  §6.4 还明确「dilate 已接近最优，勿再微优化」。**换连通域算法连「理论上更快」都缺数据**，
+  且会破坏语义等价 → 当前目标下不可行，也不该当成「最大热点优化」。
+
 - ❌ **当前不可行**：`filter` 连通域换 two-pass + union-find / 限定到 LB/LE 文字带，替代
-  全图 8 邻接 BFS（最大热点）。虽能显著降 `filter` 耗时，但 `Figure` 边界框/连通关系改变
-  会动 `second_filtration` 结果 → 段边界漂移。除非目标从「逐帧一致」放宽，且须重建 A/B 基线。
+  全图 8 邻接 BFS。`Figure` 边界框/连通关系改变会动 `second_filtration` → 段边界漂移；
+  且如上，无 baseline 证明更快、语义等价是硬约束。除非目标从「逐帧一致」放宽并重建 A/B 基线。
 - ❌ **当前不可行**：把 `params.rs:23` 未接线的 `roi_y` 接线做 ROI 预筛，跳过无字幕帧完整
   transform（现在只有 `color_filtration` 的 `n==0` 早退，`imgops.rs:742`）。会改变哪些帧
   `has_text=1` → 状态机 `bf/ef/步进` 全变。注意这是**已有参数未接线**，不是全新方向。
