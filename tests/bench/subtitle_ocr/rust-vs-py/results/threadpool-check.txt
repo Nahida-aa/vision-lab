@@ -1,0 +1,3 @@
+RAPIDOCR_INTRA_THREADS=default avg=637.7ms p50=636.8 peak_rss=931MB threads_max=25
+RAPIDOCR_INTRA_THREADS=4 avg=366.2ms p50=362.7 peak_rss=927MB threads_max=13
+RAPIDOCR_INTRA_THREADS=8 avg=378.9ms p50=377.3 peak_rss=931MB threads_max=25

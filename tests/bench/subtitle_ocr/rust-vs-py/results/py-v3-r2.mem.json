@@ -17,11 +17,11 @@
     "tests/bench/subtitle_ocr/rust-vs-py/results/py-v3-r2.json"
   ],
   "exit_code": 0,
-  "wall_ms": 14086.22427899536,
-  "peak_rss_mb": 561.55859375,
-  "mean_rss_mb": 337.91864341436866,
-  "samples": 689,
+  "wall_ms": 13572.673865004617,
+  "peak_rss_mb": 604.76953125,
+  "mean_rss_mb": 342.66685267857144,
+  "samples": 665,
   "threads_max": 19,
-  "user_s": 48.078759,
-  "sys_s": 3.681536
+  "user_s": 46.501491,
+  "sys_s": 3.103285
 }

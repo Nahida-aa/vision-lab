@@ -6,6 +6,7 @@ data/models/
 #
 target
 build
+build-*
 
 .agents/*.local.md
 
@@ -27,3 +28,4 @@ tests/bench/subtitle_ocr/results
 
 # py
 .venv
+__pycache__

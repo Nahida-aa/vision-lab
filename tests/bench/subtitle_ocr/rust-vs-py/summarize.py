@@ -73,15 +73,20 @@ def main():
         elif "per_invocation_ms" in d:
             grouped.setdefault(key, []).extend(d["per_invocation_ms"])
 
-    # cpp：从 stderr 逐帧取
-    cpp = {"per": [], "det": [], "post": [], "rec": [], "img": [], "model_load_ms": None}
-    for p in sorted(glob.glob(os.path.join(res, "cpp-v3-r*.stderr"))):
+    # cpp：从 stderr 逐帧取。每个 ORT 版本一个构建目录 → 一个 key
+    # （cpp-v3-ort124 / -ort128 / -ort132），同一份源码，仅链接的 ORT 不同。
+    cpp = {}
+    for p in sorted(glob.glob(os.path.join(res, "cpp-*-r*.stderr"))):
+        key = re.sub(r"-r\d+\.stderr$", "", os.path.basename(p))
         r = load_cpp(p)
+        agg = cpp.setdefault(key, {"per": [], "det": [], "post": [], "rec": [],
+                                   "img": [], "model_load_ms": None})
         for k in ("per", "det", "post", "rec", "img"):
-            cpp[k].extend(r[k])
-        cpp["model_load_ms"] = r["model_load_ms"]
-    if cpp["per"]:
-        grouped["cpp-v3(ORT)"] = cpp["per"]
+            agg[k].extend(r[k])
+        agg["model_load_ms"] = r["model_load_ms"]
+    for key, agg in cpp.items():
+        if agg["per"]:
+            grouped[key] = agg["per"]
 
     # RSS：每次 run 的峰值取 max，均值取各 run 平均再平均
     def mem(key):
@@ -110,7 +115,8 @@ def main():
     print("| 实现 | 样本 n | avg | P50 | P95 | min | max |")
     print("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     order = ["rust-v4", "rust-v4-arenaoff", "py-v4", "py-v4-arenaon", "py-v4-oneshot",
-             "rust-v3", "rust-v3-arenaoff", "py-v3", "py-v3-arenaon", "cpp-v3(ORT)",
+             "rust-v3", "rust-v3-arenaoff", "py-v3", "py-v3-arenaon",
+             "cpp-v3-ort124", "cpp-v3-ort128", "cpp-v3-ort132",
              "rust-v4-autothreads", "py-v4-autothreads"]
     for key in order + [k for k in grouped if k not in order]:
         if key not in grouped:
@@ -121,21 +127,26 @@ def main():
             f"| {s['min']:.1f} | {s['max']:.1f} |"
         )
 
-    if cpp["det"]:
+    if cpp:
         print("\n## cpp 分相（ms，逐帧均值）\n")
-        print("| 读图 | det | det 后处理 | rec | 模型加载(一次) |")
-        print("| ---: | ---: | ---: | ---: | ---: |")
-        print(
-            f"| {statistics.mean(cpp['img']):.1f} | {statistics.mean(cpp['det']):.1f} "
-            f"| {statistics.mean(cpp['post']):.1f} | {statistics.mean(cpp['rec']):.1f} "
-            f"| {cpp['model_load_ms']:.0f} |"
-        )
+        print("| 构建 | 读图 | det | det 后处理 | rec | 模型加载(一次) |")
+        print("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for key in sorted(cpp):
+            agg = cpp[key]
+            if not agg["det"]:
+                continue
+            print(
+                f"| {key} | {statistics.mean(agg['img']):.1f} | {statistics.mean(agg['det']):.1f} "
+                f"| {statistics.mean(agg['post']):.1f} | {statistics.mean(agg['rec']):.1f} "
+                f"| {agg['model_load_ms']:.0f} |"
+            )
 
     print("\n## 内存（MB）\n")
     print("| 实现 | 峰值 RSS | 各轮峰值 | 平均 RSS | 线程峰值 |")
     print("| --- | ---: | --- | ---: | ---: |")
     for key in ["rust-v4", "rust-v4-arenaoff", "rust-v3", "rust-v3-arenaoff",
-                "cpp-v3", "py-v4", "py-v4-arenaon", "py-v3", "py-v3-arenaon",
+                "cpp-v3-ort124", "cpp-v3-ort128", "cpp-v3-ort132",
+                "py-v4", "py-v4-arenaon", "py-v3", "py-v3-arenaon",
                 "py-v4-oneshot", "rust-v4-autothreads", "py-v4-autothreads"]:
         m = mem(key)
         if not m:

@@ -5,6 +5,7 @@
     "0-3",
     "env",
     "RAPIDOCR_CPU_ARENA=0",
+    "RAPIDOCR_INTRA_THREADS=4",
     "./target/release/probe",
     "--dir",
     "packages/tmp/ocr-bench/oneframe-replay40",
@@ -21,11 +22,11 @@
     "tests/bench/subtitle_ocr/rust-vs-py/results/rust-v4-arenaoff-r2.json"
   ],
   "exit_code": 0,
-  "wall_ms": 32250.52552499983,
-  "peak_rss_mb": 633.46875,
-  "mean_rss_mb": 462.7382964100906,
-  "samples": 1546,
-  "threads_max": 25,
-  "user_s": 164.266306,
-  "sys_s": 14.061649
+  "wall_ms": 30545.266020999406,
+  "peak_rss_mb": 643.55078125,
+  "mean_rss_mb": 476.52110215618694,
+  "samples": 1487,
+  "threads_max": 13,
+  "user_s": 93.198073,
+  "sys_s": 5.707056
 }

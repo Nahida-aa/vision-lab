@@ -18,11 +18,11 @@
     "tests/bench/subtitle_ocr/rust-vs-py/results/py-v3-arenaon-r2.json"
   ],
   "exit_code": 0,
-  "wall_ms": 13550.48483700375,
-  "peak_rss_mb": 900.21484375,
-  "mean_rss_mb": 794.2771669966063,
-  "samples": 663,
+  "wall_ms": 12958.704110002145,
+  "peak_rss_mb": 904.09765625,
+  "mean_rss_mb": 800.4244525098425,
+  "samples": 635,
   "threads_max": 19,
-  "user_s": 48.822422,
-  "sys_s": 0.814627
+  "user_s": 46.337128,
+  "sys_s": 0.685959
 }

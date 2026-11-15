@@ -3,6 +3,8 @@
     "taskset",
     "-c",
     "0-3",
+    "env",
+    "RAPIDOCR_INTRA_THREADS=4",
     "./target/release/probe",
     "--dir",
     "packages/tmp/ocr-bench/oneframe-replay40",
@@ -19,11 +21,11 @@
     "tests/bench/subtitle_ocr/rust-vs-py/results/rust-v4-r3.json"
   ],
   "exit_code": 0,
-  "wall_ms": 28549.677312999847,
-  "peak_rss_mb": 928.34375,
-  "mean_rss_mb": 914.4330222430505,
-  "samples": 1367,
-  "threads_max": 25,
-  "user_s": 157.81987,
-  "sys_s": 1.6735099999999998
+  "wall_ms": 29176.663753998582,
+  "peak_rss_mb": 925.88671875,
+  "mean_rss_mb": 912.8577916080225,
+  "samples": 1421,
+  "threads_max": 13,
+  "user_s": 93.442849,
+  "sys_s": 0.768106
 }

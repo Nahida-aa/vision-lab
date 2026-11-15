@@ -17,22 +17,41 @@ if(NOT ORT_DIR)
     if(WIN32)
         set(ORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tmp/onnxruntime-win-x64-1.26.0/onnxruntime-win-x64-1.26.0")
     else()
-        # Prefer the ORT copy bundled with this project under packages/tmp/.
+        # Auto-detect the ORT copy bundled under packages/tmp/.  Deliberately
+        # version-agnostic: we do not hardcode 1.24.4 any more, because the
+        # benchmark needs to build against several ORT releases (1.24.4 /
+        # 1.28.0 / 1.32.0) and the newest bundled one should win by default.
         # 本仓库源码位于 packages/subtitle_ocr_cpp/（比 LocalDub 的
         # packages/subtitle_ocr/ort-cpp/ 浅一层），故 ../tmp 才是 packages/tmp；
         # 保留 ../../tmp 分支以兼容 LocalDub 那种更深的布局。
-        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../tmp/onnxruntime-linux-x64-1.24.4")
-            set(ORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tmp/onnxruntime-linux-x64-1.24.4")
-        elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../tmp/onnxruntime-linux-x64-1.24.4")
-            set(ORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../tmp/onnxruntime-linux-x64-1.24.4")
-        elseif(EXISTS "/tmp/onnxruntime-linux-x64-1.24.4")
-            set(ORT_DIR "/tmp/onnxruntime-linux-x64-1.24.4")
-        endif()
+        foreach(_ort_root
+                "${CMAKE_CURRENT_SOURCE_DIR}/../tmp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../tmp"
+                "/tmp")
+            if(ORT_DIR)
+                break()
+            endif()
+            file(GLOB _ort_candidates
+                "${_ort_root}/onnxruntime-linux-x64-*")
+            if(_ort_candidates)
+                # Newest version first; pick the first dir that actually
+                # contains include/ + lib/ so a half-extracted tarball is
+                # skipped instead of failing the build.
+                list(SORT _ort_candidates COMPARE NATURAL ORDER DESCENDING)
+                foreach(_cand IN LISTS _ort_candidates)
+                    if(EXISTS "${_cand}/include/onnxruntime_cxx_api.h"
+                       AND EXISTS "${_cand}/lib/libonnxruntime.so")
+                        set(ORT_DIR "${_cand}")
+                        break()
+                    endif()
+                endforeach()
+            endif()
+        endforeach()
     endif()
 endif()
 if(NOT ORT_DIR)
     message(FATAL_ERROR
-        "onnxruntime not found. Place it under packages/tmp/onnxruntime-linux-x64-1.24.4 "
+        "onnxruntime not found. Extract it under packages/tmp/onnxruntime-linux-x64-<ver> "
         "or configure with -DORT_DIR=/path/to/onnxruntime")
 endif()
 message(STATUS "ORT_DIR: ${ORT_DIR}")
@@ -99,11 +118,23 @@ if(WIN32)
 else()
     find_library(ONNXRUNTIME_LIB onnxruntime PATHS "${ORT_LIB_DIR}" NO_DEFAULT_PATH)
     target_link_libraries(subtitle_ocr_ort_cpp PRIVATE ${ONNXRUNTIME_LIB} pthread)
+    # Resolve the real versioned .so (libonnxruntime.so.1.28.0, ...) instead of
+    # hardcoding a version, then expose it in the build dir under the stable
+    # soname libonnxruntime.so.1 so running the binary next to it works even
+    # without LD_LIBRARY_PATH.
+    file(GLOB _ort_so_versioned "${ORT_LIB_DIR}/libonnxruntime.so.1.*")
+    list(SORT _ort_so_versioned COMPARE NATURAL)
+    if(_ort_so_versioned)
+        list(GET _ort_so_versioned -1 ORT_SO_REAL)
+    else()
+        set(ORT_SO_REAL "${ORT_LIB_DIR}/libonnxruntime.so")
+    endif()
+    message(STATUS "ORT shared library: ${ORT_SO_REAL}")
     add_custom_command(TARGET subtitle_ocr_ort_cpp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ORT_LIB_DIR}/libonnxruntime.so.1.24.4"
+            "${ORT_SO_REAL}"
             "$<TARGET_FILE_DIR:subtitle_ocr_ort_cpp>/libonnxruntime.so.1"
-        COMMENT "Copying ORT shared library"
+        COMMENT "Copying ORT shared library (${ORT_SO_REAL})"
     )
 endif()
 

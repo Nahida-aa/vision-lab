@@ -331,6 +331,20 @@ impl OcrEngine {
 /// 构建 ONNX Session（文件存在性已校验），应用指定执行后端。
 fn build_session(path: &Path, backend: ExecutionBackend) -> Result<Session> {
     let mut builder = backend.apply(Session::builder()?)?;
+    // 基准探针（默认关闭）：`RAPIDOCR_INTRA_THREADS=N` 显式钉住 intra-op 线程数，
+    // 用来和 Python（`intra_op_num_threads=`）/ C++（`--threads N`）对齐。
+    // 不设该变量时保持 ORT 默认（按物理核数），线上行为不变。
+    // 动机：本机 8 物理 / 16 逻辑核，默认池宽度与「taskset -c 0-3 + 4 线程」
+    // 对齐时会超订，跨实现比较必须先对齐线程数。
+    if let Some(n) = std::env::var("RAPIDOCR_INTRA_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+    {
+        builder = builder
+            .with_intra_threads(n)
+            .map_err(|e| anyhow::anyhow!("设置 intra-op 线程数失败（{n}）: {e}"))?;
+    }
     builder
         .commit_from_file(path)
         .with_context(|| format!("加载 ONNX 模型失败: {}", path.display()))
