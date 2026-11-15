@@ -30,9 +30,11 @@ CPUSET=0-3
 
 # cpp 构建目录 → 结果标签。每个目录都必须是用 -DORT_DIR=... 显式配置出来的，
 # 否则 CMakeLists 的自动探测会挑 packages/tmp 下最新的一份，标签就会名不副实。
+# `build` 是仓库默认构建目录，现在对齐 rust/python 所用的 ORT 1.28.0；
+# `build-ort124` / `build-ort132` 只作为「升级 ORT 值不值」的实验基线保留。
 CPP_VARIANTS=(
-  "cpp-v3-ort124:packages/subtitle_ocr_cpp/build"
-  "cpp-v3-ort128:packages/subtitle_ocr_cpp/build-ort128"
+  "cpp-v3-ort124:packages/subtitle_ocr_cpp/build-ort124"
+  "cpp-v3-ort128:packages/subtitle_ocr_cpp/build"
   "cpp-v3-ort132:packages/subtitle_ocr_cpp/build-ort132"
 )
 

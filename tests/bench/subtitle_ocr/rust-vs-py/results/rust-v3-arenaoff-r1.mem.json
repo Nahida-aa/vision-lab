@@ -22,11 +22,11 @@
     "tests/bench/subtitle_ocr/rust-vs-py/results/rust-v3-arenaoff-r1.json"
   ],
   "exit_code": 0,
-  "wall_ms": 17661.410795000847,
-  "peak_rss_mb": 565.08984375,
-  "mean_rss_mb": 388.2038800274884,
-  "samples": 864,
+  "wall_ms": 19497.379971995542,
+  "peak_rss_mb": 534.1328125,
+  "mean_rss_mb": 357.53643100734524,
+  "samples": 953,
   "threads_max": 13,
-  "user_s": 49.238827,
-  "sys_s": 4.424964
+  "user_s": 54.556866,
+  "sys_s": 5.062942
 }

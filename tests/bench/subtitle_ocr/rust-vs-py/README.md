@@ -24,21 +24,23 @@ python3 summarize.py | tee results/summary.md
 ## cpp 的 ORT 版本实验
 
 同一份 `ocr_pipeline.cpp` 分别链接 `packages/tmp/` 下解压的三个 ORT，各自独立构建目录
-（**必须**显式 `-DORT_DIR`，否则 CMake 会自动挑最新的一份，标签就会名不副实）：
+（**必须**显式 `-DORT_DIR`，否则 CMake 会自动挑最新的一份，标签就会名不副实）。
+默认目录 `build` 对齐 rust/python 所用的 **1.28.0**，另两个目录只是实验基线：
 
 ```bash
 cmake -S packages/subtitle_ocr_cpp -B packages/subtitle_ocr_cpp/build \
-      -DORT_DIR="$PWD/packages/tmp/onnxruntime-linux-x64-1.24.4"
-cmake -S packages/subtitle_ocr_cpp -B packages/subtitle_ocr_cpp/build-ort128 \
       -DORT_DIR="$PWD/packages/tmp/onnxruntime-linux-x64-1.28.0"
+cmake -S packages/subtitle_ocr_cpp -B packages/subtitle_ocr_cpp/build-ort124 \
+      -DORT_DIR="$PWD/packages/tmp/onnxruntime-linux-x64-1.24.4"
 cmake -S packages/subtitle_ocr_cpp -B packages/subtitle_ocr_cpp/build-ort132 \
       -DORT_DIR="$PWD/packages/tmp/onnxruntime-linux-x64-1.32.0"
 cmake --build packages/subtitle_ocr_cpp/build -j8
-cmake --build packages/subtitle_ocr_cpp/build-ort128 -j8
+cmake --build packages/subtitle_ocr_cpp/build-ort124 -j8
 cmake --build packages/subtitle_ocr_cpp/build-ort132 -j8
 ```
 
-结果标签 `cpp-v3-ort124 / -ort128 / -ort132` 对应 ORT 1.24.4 / 1.28.0 / 1.32.0。
+结果标签 `cpp-v3-ort124 / -ort128 / -ort132` 对应 ORT 1.24.4 / 1.28.0 / 1.32.0
+（`run.sh` 里 `ort128` 指向默认 `build` 目录）。
 
 ## 文件
 
@@ -64,8 +66,8 @@ cmake --build packages/subtitle_ocr_cpp/build-ort132 -j8
   `taskset -c 0-3` 内超订，同一二进制同一帧从 366ms 劣化到 638ms（`threadpool-check.txt`）。
 - 内存要**同 arena 配置**比：`RAPIDOCR_CPU_ARENA=0` 让 Rust 走 `DisableCpuMemArena`
   （等价 Python 包内的 `enable_cpu_mem_arena=False`）；不设则走 ORT 默认（arena 开）。
-- 速度也受 arena 影响：开不比关慢（0.5–15%，跨会话幅度不稳）。速度优先时取 arena 开，该格
-  Rust 与 Python 的 v4/v3 两套权重都是「更快 + 峰值更低」。
+- 速度也受 arena 影响：开通常更快（本次 −0.7 ~ +5.5%，上一版会话到 15%，跨会话幅度不稳）。
+  速度优先时取 arena 开，该格 Rust 与 Python 的 v4/v3 两套权重都是「更快 + 峰值更低」。
 - ORT 版本也是变量：cpp 的三个构建分别链接 1.24.4 / 1.28.0 / 1.32.0，而 rust/python
   的 ORT 是 1.28.0。跨实现比速度时优先用 `cpp-v3-ort128`（同 ORT 版本），
   `cpp-v3-ort124` 只用于「升级 ORT 值不值得」这一问（结论：单帧不提速，1.32 只省初始化）。

@@ -4,10 +4,10 @@
     "-c",
     "0-3",
     "env",
-    "LD_LIBRARY_PATH=packages/subtitle_ocr_cpp/build-ort128",
+    "LD_LIBRARY_PATH=packages/subtitle_ocr_cpp/build",
     "OCR_MODELS_DIR=data/models/rapidocr",
     "OCR_KEYS_PATH=data/models/rapidocr/ppocr_keys.json",
-    "./packages/subtitle_ocr_cpp/build-ort128/subtitle_ocr_ort_cpp",
+    "./packages/subtitle_ocr_cpp/build/subtitle_ocr_ort_cpp",
     "--dir",
     "packages/tmp/ocr-bench/oneframe-replay40",
     "0.45",
@@ -16,11 +16,11 @@
     "4"
   ],
   "exit_code": 0,
-  "wall_ms": 10256.899621999764,
-  "peak_rss_mb": 761.09375,
-  "mean_rss_mb": 736.2107511182902,
-  "samples": 503,
+  "wall_ms": 10935.080545001256,
+  "peak_rss_mb": 759.015625,
+  "mean_rss_mb": 734.3736857476636,
+  "samples": 535,
   "threads_max": 13,
-  "user_s": 39.762419,
-  "sys_s": 0.186101
+  "user_s": 42.313507,
+  "sys_s": 0.196758
 }
