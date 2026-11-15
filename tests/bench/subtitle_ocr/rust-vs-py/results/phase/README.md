@@ -12,6 +12,10 @@
 | `py-v{3,4}-r{1,2,3}.json` | Python `py_phase.py` 三轮：`det_pre` / `det_full`（det 单独跑）/ `engine`（det+cls+rec） |
 | `py-det-split-v{3,4}[-arenaon].txt` | Python det 拆成 pre / infer / post（arena 开/关两格） |
 | `py-detpre-breakdown-r{1,2,3}.txt` | Python det 预处理内部：resize / normalize / permute / expand+astype |
+| `CPP_VS_RUST.md` | **C++ vs Rust 同 ORT 1.28.0 分阶段（§4.7）**：C++ `[phase]` / `[probe]` 原始数据、同窗口配对 det Run、复现命令与结论 |
+| `cpp-phase-r{1,2,3}.txt` / `rust-phase-r{1,2,3}.json` | C++ `OCR_PHASE_MS` 与 Rust `phase_probe` 交错同窗口三轮（逐帧 40 reps） |
+| `cpp-probe-r{1,2,3}.txt` | C++ `OCR_PROBE=1` 受控循环：det Run 的 arena/device/fresh 输入对照 + rec 切换惩罚 |
+| `paired-cpp-r{1,2,3}.txt` / `paired-rust-r{1,2,3}.json` | 同窗口交错的纯 det Run 配对测量 |
 
 ## 三轮中位（ms/帧，2026-11-15 12:32–12:38，loadavg 2.3→5.5）
 

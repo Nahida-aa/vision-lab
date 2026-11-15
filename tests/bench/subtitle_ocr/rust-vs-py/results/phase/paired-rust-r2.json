@@ -1,0 +1,42 @@
+{
+  "derived": {
+    "cls_plus_rec_ms": 9.67272192499999,
+    "det_infer_post_ms": 187.866533075,
+    "whole_frame_ms": 214.380245575
+  },
+  "detect_ms": {
+    "avg": 211.8547471,
+    "p50": 211.021602,
+    "p95": 223.24516
+  },
+  "detect_raw_boxes_ms": {
+    "avg": 202.182025175,
+    "p50": 201.425949,
+    "p95": 215.588684
+  },
+  "engine_init_ms": 116.007454,
+  "frame": "packages/tmp/ocr-bench/oneframe-replay40/0000000.jpg",
+  "impl": "rust-phase",
+  "load_image_ms": {
+    "avg": 2.487505450000001,
+    "p50": 2.421796,
+    "p95": 2.64678
+  },
+  "model": "v3",
+  "preprocess_det_ms": {
+    "avg": 14.3154921,
+    "p50": 14.007579,
+    "p95": 15.508557
+  },
+  "reps": 40,
+  "roi": [
+    1280,
+    288
+  ],
+  "roi_copy_ms": {
+    "avg": 0.03799302500000001,
+    "p50": 0.023503,
+    "p95": 0.07925600000000001
+  },
+  "warmup": 2
+}

@@ -1,0 +1,1 @@
+[probe] detArena=184.55 detDevice=185.14 detFresh=184.51 recAlone=5.03 recAfterDet=23.57 det_input_shape=736x3264 N=40
