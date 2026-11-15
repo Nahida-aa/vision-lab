@@ -1,5 +1,14 @@
 # subtitle_finder
 
+> ⚠️ **本文是移植初期的设计稿，部分内容已过时（尤其「视频解码方案」「输入/输出契约」
+> 「段尾 PTS 决策」「帧内并行」）。** 按 `AGENTS.md` 约定，文档与代码不一致时**以源码
+> `///` 注释为准**。
+> - 当前实现状态、已验证/已否决的优化结论、待验证方向 → [`docs/DECISIONS.md`](docs/DECISIONS.md)
+> - 性能实测数据 → [`docs/state-machine-perf-analysis.md`](docs/state-machine-perf-analysis.md)
+> - 正确性对齐待办 → [`todo.md`](todo.md)
+>
+> 下文保留历史决策记录（含被推翻的结论），不删除，以便追溯「为什么这么设计」。
+
 吃视频 → 输出字幕关键帧图 + 时间轴。**复刻 VideoSubFinder 的「筛选」管线**（传统 CV，
 不做 OCR），把 `rapidocr_ort` 作为下游识别器，对应官方
 `VideoSubFinder → RapidVideOCR` 的分工。
@@ -16,6 +25,9 @@
 
 ## 输入 / 输出契约
 
+> ⚠️ **已过时**：文件名格式、`Keyframe` 字段、落盘位置都已变。以 `lib.rs` / `output.rs`
+> 源码为准，见下方「实际实现」块。
+
 ```
 输入：视频文件（mp4 等，ffmpeg 可解码）
 输出：
@@ -24,9 +36,16 @@
   - 或结构化 JSON：{ 关键帧路径, start_ms, end_ms, text_img }
 ```
 
-> **当前实现**：`find_keyframes` 返回 `Vec<Keyframe>{ start_ms, end_ms, frame: Array3<u8> }`。
-> CLI（`main.rs`）把代表帧存为 `{start_ms}_{end_ms}.png`（即 subtitle_ocr `--dir` 的
-> `ms_ms` 时间区间约定，可直接喂下游 OCR）。JSON 输出（keyframes.json）已实现。
+> ~~**当前实现**：`find_keyframes` 返回 `Vec<Keyframe>{ start_ms, end_ms, frame: Array3<u8> }`。~~
+> ~~CLI（`main.rs`）把代表帧存为 `{start_ms}_{end_ms}.png`…JSON 输出（keyframes.json）已实现。~~
+
+> **实际实现（以源码为准）**：
+> - `find_keyframes(video, &Params) -> Vec<Keyframe>`（`lib.rs:42`），`Keyframe` 含
+>   `start_ms / end_ms / frame: Array3<u8> / mask: Array2<u8>`（`lib.rs:23-33`）。
+> - 落盘统一在 `output.rs::write_artifacts`，产物为 `frames/`（原始帧）、`mask/`（去背景
+>   掩码）、`timeline.txt`、`keyframes.json` 四类；文件名 `{start_ms}_{end_ms}.png`
+>   （`output.rs:59-68`），即 subtitle_ocr `--dir` 的 `ms_ms` 约定，可直接喂下游 OCR。
+> - `main.rs` 只做参数解析 / 路径解析 / 进度条（`main.rs:13-14`），不负责落盘。
 
 下游：`rapidocr_ort` 对关键帧图 rec，得到字幕文本（对应 RapidVideOCR）。
 
@@ -69,6 +88,11 @@ VideoSubFinder 用 ffmpeg/OpenCV 逐帧 `OneStep()` 读入内存处理，不落�
 
 ## 关键参数（默认值，需对齐 VideoSubFinder）
 
+> ⚠️ **不完整**：下表只列了 8 个状态机主参数，实际 `params.rs` 有 20+ 字段
+> （`roi_y / scd / segw / msegc / min_h / mthr / mnthr / btd / to / mpn / mpd / mpned / msh` 等），
+> 其中 `mpn=50`/`mnthr=0.3` 等是 filter/compare 的关键阈值。完整清单与默认值以
+> `params.rs` 为准。另：`params.rs:23` 的 `roi_y` 目前**只有定义、无消费方**（死参数，未接线）。
+
 | 参数 | 值 | 含义 |
 | --- | --- | --- |
 | `DL` | 6 | 字幕帧长度（滑动窗口） |
@@ -82,31 +106,50 @@ VideoSubFinder 用 ffmpeg/OpenCV 逐帧 `OneStep()` 读入内存处理，不落�
 
 ## 模块划分（Rust）
 
+> ⚠️ **已过时**：`frame.rs` 解码方式变了；漏了 `output.rs`。以 `src/` 源码为准。
+
 ```
 packages/subtitle_finder/
   src/
-    lib.rs          # 对外 API：find_keyframes(video) -> Vec<Keyframe>
-    frame.rs        # 逐帧解码（视频 → 帧流，ffmpeg-next 回调模式）
+    lib.rs          # 对外 API：find_keyframes(video, &Params) -> Vec<Keyframe>
+    frame.rs        # 逐帧解码（opencv::videoio::VideoCapture，非 ffmpeg-next）
     imgops.rs       # 基础像素算子（交集/色差/颜色滤波/BGR→YUV/阈值化/卷积等）
-    preprocess.rs   # AnalyseImage 投影 / intersect（Array2 版）
+    preprocess.rs   # AnalyseImage 投影 / intersect
     filter.rs       # FilterTransformedImage（自写 BFS 连通域替代）
     compare.rs      # CompareTwoSubs / CompareTwoSubsOptimal（跨帧比较）
-    state.rs        # FastSearchSubtitles 状态机（时间轴）+ FrameCache
-    params.rs       # 全局参数（对齐上表）
+    state.rs        # FastSearchSubtitles 状态机（时间轴）+ FrameCache/TransformStream
+    params.rs       # 全局参数（对齐上表，实际字段更多）
+    output.rs       # write_artifacts：帧图/掩码/timeline/json 落盘
     main.rs         # CLI（可选 --profile 剖析）
 ```
 
 ## 复用策略
 
+> ⚠️ **已过时 + 前后矛盾**：视频解码/图像读取实际是 `opencv`；连通域本文 §4 写
+> 「用 OpenCV findContours 替代」、本表写「自写 BFS」——**实际是自写 8 邻接 BFS**
+> （`filter.rs:40`），两条 OpenCV 方案都未采用。以 `Cargo.toml` / `filter.rs` 为准。
+
 | 算子 | 来源 |
 | --- | --- |
 | 逐像素交集 / 投影 / Sobel / 卷积 / 阈值 | `geometry::imgproc`（SIMD，文件夹模块） |
-| 连通域（文字块） | 自写 BFS 8 邻接（`filter.rs`，替代 CMyClosedFigure / OpenCV findContours） |
-| 图像读取 | 逐帧解码直接产出 BGR（`ffmpeg-next`） |
-| 视频解码 | `ffmpeg-next`（已采用，见下） |
+| 连通域（文字块） | 自写 BFS 8 邻接（`filter.rs`，替代 CMyClosedFigure） |
+| 图像读取 | 逐帧解码直接产出 BGR（`opencv::videoio::VideoCapture`） |
+| 视频解码 | `opencv`（bt709 BGR，`frame.rs`；此前 ffmpeg-next 因 bt601 已弃用） |
+| 形态学膨胀 / BGR→YUV | `opencv::imgproc::dilate` / `cvtColor`（对齐 C++） |
 | 识别 | `rapidocr_ort`（下游，不在本包） |
 
-## 视频解码方案（待你决策）
+## 视频解码方案（~~待你决策~~ → 已定案，结论已被推翻）
+
+> ✅ **最终结论（以源码为准）**：改用 **`opencv::videoio::VideoCapture`** 逐帧解码，
+> **不是** `ffmpeg-next`。根因：`ffmpeg-next` 的 swscale 默认输出 **bt601** BGR，而
+> C++/OpenCV 输出 **bt709**（差 ±1-8），输入色彩差异让 `get_im_ff` 阈值边缘像素判定
+> 不同 → 幽灵带 → 字幕段丢失/过度切分。见 `frame.rs:3-9`、`Cargo.toml:29-31`、
+> `todo.md` 中 `08b5307` / `4443773`。
+> 配合 `imgops::bgr_to_yuv` 用 `cv::cvtColor`，彻底对齐 C++ 输入。
+> 本节的「两方案对比」与「建议方案 1」是移植初期的历史记录，**不再适用**。
+
+<details>
+<summary>历史记录（已废弃，保留供追溯）</summary>
 
 仓库没有 Rust 视频解码库（bench 用外部 ffmpeg 命令抽帧）。逐帧 30fps 解码两个选择：
 
@@ -119,6 +162,8 @@ packages/subtitle_finder/
 
 > 已采用方案 1：`frame.rs` 用 `ffmpeg-next` 逐帧解码（回调模式），配合 `state.rs` 的
 > `FrameCache` 顺序缓存每帧转换产物。
+
+</details>
 
 ## 性能基准与优化（重要）
 
@@ -183,6 +228,13 @@ packages/subtitle_finder/
 
 ### 并行化 GetImFF / GetImNE / GetImHE（最大的一步）
 
+> ⚠️ **现状已变**：帧内 3 线程并行**默认关闭**（`imgops.rs` `SF_PARALLEL` / `SF_THR`
+> 环境变量才开，源码注释说明帧内再切线程收益为负/抢内存带宽）；当前主力是
+> **帧间并行**（`state.rs::TransformStream`：解码线程 + N worker + reorder）。
+> 本节记录的是「曾经试过」的历史结果，**不等于当前默认配置**。
+> 当前基线与分阶段耗时见 `docs/state-machine-perf-analysis.md` §7.3（~14.4ms/帧，
+> 单 worker，1017 帧）。
+
 C++ 的 `GetTransformedImage` 里这 3 个算子用 `run_in_parallel`，我们之前**顺序执行**。
 改成 `std::thread::scope` 3 线程并行（共享只读 Y/U/V）后：
 - im_ff + im_ne_he 从串行 ~3.7s → 并行 ~1.3s（~2.8× 快）。
@@ -206,6 +258,13 @@ C++ 的 `GetTransformedImage` 里这 3 个算子用 `run_in_parallel`，我们�
   `val=3*val1+10*val2`），不是 7——Rust 的 10 正确。
 
 ### 决策：段尾 PTS —— 对齐 C++（`PosForward[offset]-1`）vs 真实末帧 PTS 的取舍（`5384414`）
+
+> ✅ **已定案，结论与本节「倾向回退」相反方向已落地**：当前用**真实末帧 PTS**
+> `frame(fn+offset-1).pos`（`f31825d`），不跟随 C++ 的 `PosForward[offset]-1`。
+> `todo.md`「已修复（全部对齐 C++）」与 `state-machine-perf-analysis.md` §8.4
+> 均确认：段尾 1 帧差是 **C++ 侧 off-by-one**，Rust 不修、也不跟随。
+> 本节是 2026-08 的决策过程记录（当时「待用户定夺」），**当前实现已按真实末帧 PTS**，
+> 下面的「现状（5384414 已切到 C++ 语义）」不再成立。
 
 C++ 段尾 `et = PosForward[offset] - 1`（SSAlgorithms.cpp:1815 / 1669）：取「新句首帧
 PTS - 1ms」，是个近似——落在新旧交界处，**并不指向旧句最后真正可见的那一帧**。
