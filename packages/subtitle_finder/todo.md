@@ -39,6 +39,23 @@
 
 ## 待办
 
+- [ ] **[性能调研，非对齐缺陷] 连通域：补「自写 8 邻接 BFS vs OpenCV findContours / C++ CMyClosedFigure」的性能对比**
+      - 背景：连通域当前是自写 8 邻接 BFS（`filter.rs:40`），语义对齐 C++
+        `SearchClosedFigures(combine_diagonal_points=true)`；`DESIGN.md:75` 曾计划用
+        OpenCV `findContours` 替代，但骨架 `838815b` 只是 `todo!` 占位、首次实现
+        `903e427` 直接写了 BFS，**findContours 从未落地、无任何性能对比数据**。
+        `perfbench.rs` 也没有连通域专项基准。详见 `docs/DECISIONS.md §5`「连通域决策背景」。
+      - 现状修正：filter 内部最大头是 `dilate(NE) ~5.8ms/45%`，连通域相关
+        `filter_by_not_intersected_figures + clear_small_symbols ≈ 5.3ms/40%`
+        （`docs/perf/state-machine-perf-analysis.md §6.4`），**别把 filter 整体等同于连通域**。
+      - 要做：在 `perfbench` 加连通域隔离基准，对比自写 BFS / OpenCV
+        `findContours`(或 `connectedComponents`) / 语义等价的 two-pass+union-find 的
+        耗时与逐位一致性（8 邻接、`points` 集合、边界框都要一致）。
+      - 验收：给出各实现耗时 + 「是否与 `SearchClosedFigures` 逐位一致」的结论；
+        **先有数据再决定要不要换算法**。当前「逐帧对齐 C++」目标下，任何换算法都属
+        破坏语义，需先确认目标能否放宽并重建 A/B 基线（`docs/cpp-alignment-notes.md §三`）。
+      - 记录位置：实验设计与结果写 `docs/perf/`（见该目录 README 的维护约定）。
+
 - [ ] **末尾段 56600-58032 被 Rust 切成 56600-57033 + 57100-58000**（C++ 一整段）
       - 全程对比（C++ end=-1）：前 22 段完全对齐，唯一结构差异在**末尾**。
       - C++ 把 56600-58032（"你现在有两个选择"）当一整段；Rust 在 57100 处切成两段。

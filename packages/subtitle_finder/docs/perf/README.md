@@ -12,6 +12,7 @@
 | --- | --- |
 | [`README.md`](README.md)（本文） | 性能域入口：基线快照、测量口径、工具清单、坑、验证流程 |
 | [`state-machine-perf-analysis.md`](state-machine-perf-analysis.md) | **全部实测数据与逐次实验记录**（性能基线、分阶段拆解、A/B、微基准、已落地/已放弃方案） |
+| [`connected-components-bench.md`](connected-components-bench.md) | **待办实验**：连通域「自写 BFS vs findContours / C++ CMyClosedFigure」性能对比的设计与结论占位（对应 `todo.md` 同名待办） |
 
 > `DESIGN.md` §「性能基准与优化」保存了移植初期的性能记录（target-cpu=native、
 > 手写 SIMD、与 C++ min-of-N 对比、已知坑），**部分现状已变**（帧内并行默认关闭），
@@ -97,9 +98,12 @@
 **待验证方向的可行性**（完整清单见 [`../DECISIONS.md §5`](../DECISIONS.md)）：
 - 实现层「不改输出」的（诊断统计守卫、`sm_begin` 剖析开关）**可行、低风险**，但按 §6.1
   收益量级小，先跑 `perfbench` 再决定值不值得做。
-- 算法层（换连通域算法、接 `roi_y` 做 ROI 预筛）虽瞄准最大热点 `filter`，但会动
-  `has_text`/段边界，**在当前「逐帧对齐 C++」目标下不可行**；须先确认目标能否放宽，
-  并重建 A/B 基线（`../cpp-alignment-notes.md §三`）。
+- 算法层（换连通域算法、接 `roi_y` 做 ROI 预筛）会动 `has_text`/段边界，**在当前
+  「逐帧对齐 C++」目标下不可行**；须先确认目标能否放宽，并重建 A/B 基线
+  （`../cpp-alignment-notes.md §三`）。
+- **连通域专项**：「换连通域算法更快」目前**无任何对比数据**，且连通域只占 filter
+  ~40%（见本文 §4 开头）。已立待办，实验设计与结论占位见
+  [`connected-components-bench.md`](connected-components-bench.md)——**先补数据再谈替换**。
 
 ---
 

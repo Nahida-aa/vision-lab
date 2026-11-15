@@ -142,6 +142,9 @@ AVX2 手写算子、OpenCV 解码/dilate/cvtColor 对齐。
   `filter_by_not_intersected_figures 2.9ms + clear_small_symbols 2.4ms ≈ 5.3ms / 40%`。
   §6.4 还明确「dilate 已接近最优，勿再微优化」。**换连通域算法连「理论上更快」都缺数据**，
   且会破坏语义等价 → 当前目标下不可行，也不该当成「最大热点优化」。
+- **已立待办**：`todo.md`「[性能调研] 连通域性能对比」；实验设计、等价性/测速口径、
+  结论占位在 [`docs/perf/connected-components-bench.md`](perf/connected-components-bench.md)
+  （**先补对比数据，再决定是否替换**）。
 
 - ❌ **当前不可行**：`filter` 连通域换 two-pass + union-find / 限定到 LB/LE 文字带，替代
   全图 8 邻接 BFS。`Figure` 边界框/连通关系改变会动 `second_filtration` → 段边界漂移；
