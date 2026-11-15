@@ -89,30 +89,47 @@ AVX2 手写算子、OpenCV 解码/dilate/cvtColor 对齐。
 
 ---
 
-## 五、待验证方向（尚未实测，动手前先读本节）
+## 五、待验证方向 + 可行性评估（动手前先读本节）
 
-> 这些都**只是推测**，落地前必须用 §7 方法证伪/证实；改动会破坏「逐帧对齐 C++」的
-> 属算法层，需先确认目标是否可从「逐帧一致」放宽到「时间轴/文本结果一致」。
+> 这些都**只是推测**，落地前必须用 §7 方法证伪/证实。
+> **可行性分两类**：实现层「不改输出」的多数**可行且低风险**（但收益小）；算法层会动
+> `has_text` / 段边界，**在当前「逐帧对齐 C++」目标下不可行**，除非先确认目标可放宽到
+> 「时间轴/文本结果一致」（见 `todo.md`，当前首要目标仍是对齐）。
+> 收益量级参照 `docs/perf/state-machine-perf-analysis.md`：每帧大头是 `filter`/`im_ff`，
+> 状态机与分配优化占比极小。
 
-- **算法层**：
-  - `filter` 连通域换 two-pass + union-find / 限定到 LB/LE 文字带区域，替代全图 8 邻接
-    BFS（当前最大热点）。需保证 `Figure` 边界框逐位一致。
-  - 把 `params.rs:23` 已存在但未接线的 `roi_y` 接线，做廉价字幕 ROI 预筛，跳过无字幕帧
-    的完整 transform（当前仅 `color_filtration` 的 `n==0` 早退，`imgops.rs:742`）。
-  - 状态机减少段边界处 `compare_two_subs_optimal` 的重复调用。
-- **实现层**（不改输出，优先级低于已否决项的警示）：
-  - `filter.rs:637-678`、`imgops.rs:797-798`、`state.rs:651-652` 仍有**无条件 `let`**
-    的全帧/带区白点统计（结果只喂 `trace!`/`debug!`）。`compare.rs` 已用 `diag` 守卫修过
-    同类问题，这几处是**遗漏/回归**，可照 `compare.rs:280-284` 范式加守卫（零算法风险）。
-  - `imgops.rs:88` `sm_begin()` 的 `Instant::now()` + `thread_local` Drop 在热路径无条件
-    执行，profiling 默认关闭时数据没人读；可用 static 开关完全消除（纯剖析税）。
-  - `find_and_apply_local_thresholding` 每次 `vec![0i32; 45056]`（180KB）、`get_im_ff`
-    Thr1/Thr2 各一次 = 每帧 ~360KB calloc；`cmoe`/`visited` 等大 buffer 可按 worker
-    thread_local 复用。**注意**：§6.1 已证明「分配优化墙钟不可测」，此项预期收益很低，
-    仅作为代码质量改进，别当提速手段。
-  - `get_transformed_image` 返回 9 元素 tuple，worker 丢弃了 `im_ff/im_sf/lb/le/n`
-    却仍完整计算；`im_y` u8 又被全帧转 u16（`state.rs:314`）。可只产出最终需要的
-    FrameData 字段。
+### 实现层（不改输出，可行；按 收益/风险 排序）
+
+- ✅ **可行 · 零风险 · 收益小但确定**：`filter.rs:637/643`（全帧 count ×2）、
+  `filter.rs:638/644/650/655/661/668/674/678`、`imgops.rs:797-798`、`state.rs:651-652`
+  这些是**无条件 `let`** 的白点统计，结果只喂 `trace!`/`debug!`（已 grep 确认无其它消费方）。
+  `compare.rs:280-284` 已用 `tracing::enabled!(DEBUG)` 守卫修过同类问题（§8.3 第1项），
+  这几处是**遗漏/回归**，照抄范式加守卫即可。
+  - ⚠️ **更正**：`imgops.rs:791-796` 的 3 个全帧 count 是**内联在 `trace!` 宏参数**里，
+    宏惰性求值，非 DEBUG 不执行——**不是**问题，不要改。真正无条件的是上面列的 `let`。
+  - 收益量级：主要是 `filter.rs` 两次全帧（0.92M 像素 ×2），其余是 19 行带区小扫描；
+    对照 §8.3 同类修复实测「占主线程 ~3ms/帧」，但那是 `compare` 的 val3 路径，
+    此处预期更小，需实测。
+- ✅ **可行 · 零风险 · 微收益**：`imgops.rs:88` `sm_begin()` 的 `Instant::now()` +
+  `SmScope::drop` 的 `thread_local` 累加在热路径无条件执行，且与 `Profiler.enabled`
+  **无联动**（`sm_take/sm_merge_into` 只在 `profiler()` 被调用时才读）。可用 static 开关
+  在 profiling 关闭时完全消除。属「剖析税」，收益很小。
+- ⚠️ **可行但收益极低，别当提速手段**：`find_and_apply_local_thresholding` 每次
+  `vec![0i32; 45056]`（180KB）、`get_im_ff` Thr1/Thr2 各一次 = 每帧 ~360KB calloc；
+  `cmoe`/`visited` 可按 worker thread_local 复用；`get_transformed_image` 返回 9 元素
+  tuple、worker 丢弃 `im_ff/im_sf/lb/le/n` 却仍算，`im_y` u8 又全帧转 u16（`state.rs:314`）。
+  **§6.1 已实测「分配优化墙钟不可测」**，仅当代码质量改进。
+
+### 算法层（当前目标下不可行，需先放宽对齐要求）
+
+- ❌ **当前不可行**：`filter` 连通域换 two-pass + union-find / 限定到 LB/LE 文字带，替代
+  全图 8 邻接 BFS（最大热点）。虽能显著降 `filter` 耗时，但 `Figure` 边界框/连通关系改变
+  会动 `second_filtration` 结果 → 段边界漂移。除非目标从「逐帧一致」放宽，且须重建 A/B 基线。
+- ❌ **当前不可行**：把 `params.rs:23` 未接线的 `roi_y` 接线做 ROI 预筛，跳过无字幕帧完整
+  transform（现在只有 `color_filtration` 的 `n==0` 早退，`imgops.rs:742`）。会改变哪些帧
+  `has_text=1` → 状态机 `bf/ef/步进` 全变。注意这是**已有参数未接线**，不是全新方向。
+- ⚠️ **需实测，收益存疑**：状态机减少段边界 `compare_two_subs_optimal` 重复调用。
+  §6.2 已测 compare 每帧仅 ~0.5ms（2.5%）、差异帧 5ms 只在段边界，压缩空间有限。
 
 ---
 
