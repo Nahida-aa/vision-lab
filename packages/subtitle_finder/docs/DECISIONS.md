@@ -7,7 +7,8 @@
 > **权威性顺序（冲突时以上为准）**：
 > 1. **源码 `///` 注释 + 代码本身**（`AGENTS.md` 约定，时效性最强）
 > 2. `todo.md`（正确性对齐进度）、本文（决策状态）
-> 3. `docs/state-machine-perf-analysis.md`（性能实测数据）
+> 3. [`docs/perf/`](perf/README.md)（性能优化域：测量口径 / 工具 / 基线 / 实测，
+>    实测细目在 [`perf/state-machine-perf-analysis.md`](perf/state-machine-perf-analysis.md)）
 > 4. `DESIGN.md`（移植初期设计稿，**多处已过时**，见 §6）
 > 5. `README.md`（架构图，基于源码生成）
 >
@@ -27,7 +28,7 @@
 | 并行模型 | **帧间并行**：解码线程 + N worker + reorder + `FrameCache` 滑动窗口 | `state.rs::TransformStream` / `FrameCache` |
 | 帧内并行 | **默认关闭**（`SF_PARALLEL=1` / `SF_THR=1` 才开） | `imgops.rs:16-40,766` |
 | worker 数 | 默认 `min(4, cpu/3)`，`SF_NWORKERS` 覆盖 | `state.rs` |
-| 段尾 PTS | **真实末帧 PTS** `frame(fn+offset-1).pos`（不跟随 C++ off-by-one） | `todo.md:134`、`state-machine-perf-analysis.md:430-435` |
+| 段尾 PTS | **真实末帧 PTS** `frame(fn+offset-1).pos`（不跟随 C++ off-by-one） | `todo.md:134`、`docs/perf/state-machine-perf-analysis.md:430-435` |
 | 对外 API | `find_keyframes(video, &Params) -> Vec<Keyframe>` | `lib.rs:42` |
 | `Keyframe` | `start_ms / end_ms / frame: Array3<u8> / mask: Array2<u8>` | `lib.rs:23-33` |
 | 落盘 | `output.rs::write_artifacts`：`frames/` `mask/` `timeline.txt` `keyframes.json` | `output.rs` |
@@ -39,7 +40,7 @@
 
 ## 二、已验证的性能结论（别再重新论证）
 
-来自 `docs/state-machine-perf-analysis.md`，按时间：
+来自 `docs/perf/state-machine-perf-analysis.md`，按时间：
 
 - **基线**：Rust 单 worker 算法耗时 **~14.4 ms/帧**（1017 帧 / 1280×720 / 30fps，本机，
   2026-11-02 `--profile` 口径，§7.3）。较 2026-08 基线 19.9ms 提速 ~28%。
@@ -58,7 +59,7 @@
 
 ## 三、已落地且验证过的优化（别重复做）
 
-`state-machine-perf-analysis.md` §8.3（2026-11-03，输出 `timeline.txt` 逐字节一致）：
+`docs/perf/state-machine-perf-analysis.md` §8.3（2026-11-03，输出 `timeline.txt` 逐字节一致）：
 
 1. `compare.rs` val3 诊断全帧白点统计改 `tracing::enabled!(DEBUG)` 守卫（原无条件扫
    4–6 遍 0.92M 像素，实测占主线程 ~3ms/帧）。
@@ -77,7 +78,7 @@ AVX2 手写算子、OpenCV 解码/dilate/cvtColor 对齐。
 
 | 方案 | 结论 | 出处 |
 | --- | --- | --- |
-| 状态机分配 churn（去 clone / 复用缓冲 / compare 去拷贝） | **墙钟不可测，不必做**（§6.1、§7） | `state-machine-perf-analysis.md` |
+| 状态机分配 churn（去 clone / 复用缓冲 / compare 去拷贝） | **墙钟不可测，不必做**（§6.1、§7） | `docs/perf/state-machine-perf-analysis.md` |
 | u16 `y` 图「只在 mask 内计算」 | **改变语义**：`y` 是「亮度+255」非前景掩码，背景像素参与跨帧 ILA 比较；实测第 3 段起点 1233→1266 | §8.3 放弃方案 |
 | `compare_two_subs` 单趟融合（多趟全帧扫描合并） | **无稳定收益甚至更慢**（1017ms→1592ms，换数据可反转），已回退多趟；⚠️ 原始计时日志已丢失，引用前须重跑 | §8.3 放弃方案 |
 | 帧内 3/5 线程并行 GetImFF/NE/HE 作为默认 | 实测抢内存带宽、收益为负/甚微，**默认关闭**（`SF_PARALLEL`） | `imgops.rs:16-40`、`DESIGN.md` §并行化 顶部标注 |
@@ -132,7 +133,7 @@ AVX2 手写算子、OpenCV 解码/dilate/cvtColor 对齐。
 
 ## 七、验证方法（改动前后必做）
 
-来自 `docs/cpp-alignment-notes.md` §三、`state-machine-perf-analysis.md` §6.2/§8.4：
+来自 `docs/cpp-alignment-notes.md` §三、`docs/perf/state-machine-perf-analysis.md` §6.2/§8.4：
 
 1. **正确性（首要目标：逐帧对齐 C++）**
    - A/B 框架：`src/bin/ab_dump.rs` + `ab_dump.cpp` + `ab_compare.py`，**喂同一帧 BGR**

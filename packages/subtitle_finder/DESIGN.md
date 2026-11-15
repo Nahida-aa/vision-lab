@@ -4,7 +4,7 @@
 > 「段尾 PTS 决策」「帧内并行」）。** 按 `AGENTS.md` 约定，文档与代码不一致时**以源码
 > `///` 注释为准**。
 > - 当前实现状态、已验证/已否决的优化结论、待验证方向 → [`docs/DECISIONS.md`](docs/DECISIONS.md)
-> - 性能实测数据 → [`docs/state-machine-perf-analysis.md`](docs/state-machine-perf-analysis.md)
+> - 性能优化域（基线/口径/工具/实测） → [`docs/perf/`](docs/perf/README.md)
 > - 正确性对齐待办 → [`todo.md`](todo.md)
 >
 > 下文保留历史决策记录（含被推翻的结论），不删除，以便追溯「为什么这么设计」。
@@ -232,7 +232,7 @@ packages/subtitle_finder/
 > 环境变量才开，源码注释说明帧内再切线程收益为负/抢内存带宽）；当前主力是
 > **帧间并行**（`state.rs::TransformStream`：解码线程 + N worker + reorder）。
 > 本节记录的是「曾经试过」的历史结果，**不等于当前默认配置**。
-> 当前基线与分阶段耗时见 `docs/state-machine-perf-analysis.md` §7.3（~14.4ms/帧，
+> 当前基线与分阶段耗时见 `docs/perf/state-machine-perf-analysis.md` §7.3（~14.4ms/帧，
 > 单 worker，1017 帧）。
 
 C++ 的 `GetTransformedImage` 里这 3 个算子用 `run_in_parallel`，我们之前**顺序执行**。
@@ -261,7 +261,7 @@ C++ 的 `GetTransformedImage` 里这 3 个算子用 `run_in_parallel`，我们�
 
 > ✅ **已定案，结论与本节「倾向回退」相反方向已落地**：当前用**真实末帧 PTS**
 > `frame(fn+offset-1).pos`（`f31825d`），不跟随 C++ 的 `PosForward[offset]-1`。
-> `todo.md`「已修复（全部对齐 C++）」与 `state-machine-perf-analysis.md` §8.4
+> `todo.md`「已修复（全部对齐 C++）」与 `docs/perf/state-machine-perf-analysis.md` §8.4
 > 均确认：段尾 1 帧差是 **C++ 侧 off-by-one**，Rust 不修、也不跟随。
 > 本节是 2026-08 的决策过程记录（当时「待用户定夺」），**当前实现已按真实末帧 PTS**，
 > 下面的「现状（5384414 已切到 C++ 语义）」不再成立。
