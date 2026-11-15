@@ -1,0 +1,2 @@
+py-v4: det pre 37.4 | infer 344.2 p50 342.2 | post 1.4 | det_full 383.8
+  preds shape: (1, 1, 736, 3264)

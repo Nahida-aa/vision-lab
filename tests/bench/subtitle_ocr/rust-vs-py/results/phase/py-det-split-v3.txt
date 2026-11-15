@@ -1,0 +1,2 @@
+py-v3: det pre 38.7 | infer 217.3 p50 216.6 | post 1.6 | det_full 263.1
+  preds shape: (1, 1, 736, 3264)

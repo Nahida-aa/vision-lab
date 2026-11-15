@@ -52,7 +52,12 @@ cmake --build packages/subtitle_ocr_cpp/build-ort132 -j8
 | `py_batch.py` | python 驱动：批量常驻 engine / 每帧一进程；`--models v3` 指仓库 v3 权重（字典自动转 txt）；`--arena-on` 是归因诊断开关 |
 | `summarize.py` | 出 avg/P50/P95 + 内存表 |
 | `results/` | 原始 JSON、cpp stdout/stderr、`summary.md`、`threadpool-check.txt`、`cpp-text-check.txt` |
+| `results/phase/` | 分阶段归因原始数据（§4.6）：Rust/Python 各三轮 + det 拆分 + 预处理拆解 |
 | `../src/bin/probe.rs` | Rust 单帧计时探针（调 `subtitle_ocr::ocr_entry`，不改实现逻辑） |
+| `../src/bin/phase_probe.rs` | Rust 分阶段探针（det 预处理 / det 推理+后处理 / 完整 detect / 读图 / ROI） |
+| `py_phase.py` | Python 分阶段探针（与 `phase_probe` 同口径：`det_pre` / `det_full` / `engine`） |
+| `py_det_pre_breakdown.py` | Python det 预处理内部拆解（resize / normalize / permute / expand） |
+| `py_det_split.py` | Python det 的 pre / infer / post 三段；`--arena-on` 对齐 Rust 的 arena 配置 |
 
 ## 口径要点
 

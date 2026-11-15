@@ -1,0 +1,30 @@
+{
+  "impl": "py-phase",
+  "model": "v4",
+  "frame": "/home/aa/repos/ai_ls/vision-lab/packages/tmp/ocr-bench/oneframe-replay40/0000000.jpg",
+  "roi": [
+    1280,
+    288
+  ],
+  "reps": 20,
+  "warmup": 2,
+  "preprocess_det_ms": {
+    "avg": 40.55753305074177,
+    "p50": 39.95972449774854,
+    "p95": 44.17728730259115
+  },
+  "det_full_ms": {
+    "avg": 390.692036400651,
+    "p50": 390.6456810000236,
+    "p95": 404.6458850538329
+  },
+  "engine_ms": {
+    "avg": 436.94028579957376,
+    "p50": 438.7518985022325,
+    "p95": 464.322052346688
+  },
+  "derived": {
+    "det_infer_post_ms": 350.1345033499092,
+    "cls_plus_rec_ms": 46.24824939892278
+  }
+}

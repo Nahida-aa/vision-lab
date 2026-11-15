@@ -1,0 +1,6 @@
+resize          avg    0.5  p50    0.5
+normalize       avg   35.7  p50   35.7
+permute         avg    0.0  p50    0.0
+expand+astype   avg    3.0  p50    2.9
+total __call__  avg   39.3  p50   39.5
+input: (288, 1280, 3) -> resized (736, 3264, 3)

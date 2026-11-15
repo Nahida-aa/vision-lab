@@ -41,6 +41,9 @@
   开 arena 对齐后 **293 → 254 → 233ms**（两段 **1.15× / 1.09×**，累计 **1.26×**）。
 - 旧的 Python 调用方式（每帧一个进程、每帧重建 3 个 ORT session）：**827ms/帧**；Rust 常驻
   session **365ms/帧**，**2.27×**。这 2.27× 里有 ~385ms/帧 是进程+session 重建，不是推理。
+- **这 1.2–1.3× 也不是「语言快」**：三个实现调的是同一个 ORT 的同一份 C++ 内核，arena 对齐后
+  det 推理差 ≤2%。差距是 Python 每帧多做的宿主侧搬运——numpy det 归一化 ~36ms（每帧 ~115MB
+  临时数组）、逐框 crop/resize、det→rec 切换的首帧惩罚 ~34ms，合计 ~76ms（逐阶段拆解见 §4.6）。
 - 内存（**速度优先的唯一配置 = arena 开**）：v4 峰值 **927 vs 1163**（Rust −20%）；
   v3 峰值 **736 vs 972**（Rust −24%）。arena 关时 v4 符号翻转（630 vs 577），详见 §3.3。
 
@@ -366,7 +369,8 @@ intra-op 线程，放进 4 CPU 的 cpuset 就是严重超订，单帧劣化 **1.
 
 Rust/C++ 天然是「一个进程、session 常驻、批量跑目录」，所以在这个对比里占便宜。
 这不是语言优势，是**进程模型**优势。要公平比较「同权重同线程的纯推理」，就是
-v4 442 vs 365（1.21×）、v3 309 vs 233（1.33×）。
+v4 442 vs 365（1.21×）、v3 309 vs 233（1.33×）。这 1.2–1.33× 又是怎么来的，
+见 §4.6 的逐阶段拆解。
 
 **session 重建对内存没有影响。** 峰值 RSS 是「一个进程内看到的最大常驻集」，不跨进程累加：
 Python 每帧起进程的峰值是 **511MB**，反而比常驻进程的 577MB 略低（因为每帧只跑一次、
@@ -447,6 +451,55 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 并在文档里保留「单帧无提速」的事实；不要为了速度升级，更不要把 ORT 版本差算进
 「C++→Rust 快 1.09×」里——同版本 1.28.0 下这一比值是 **1.15×**，反而更大。
 
+### 4.6 逐阶段拆解：多出来的 76ms 是什么，「是不是语言」的答案（本次新增）
+
+§4.1 解释了 2.27× 的绝大部分（进程模型）。剩下的 1.2–1.33× 常被简化成「Rust 比 Python 快」，
+但 ORT 的卷积/GEMM 是同一份预编译 C++ kernel，**Python 进程里跑的也是它**。所以先把同一帧
+按阶段拆开（同一会话、4 线程、每阶段 20 次重复 × 3 轮取中位；loadavg 2.3→5.5，其中大部分是
+测量自身贡献的。绝对值比 §3.1 主表低 1–3%，比值不受影响）：
+
+| 阶段（单帧） | Python v3 | Rust v3 | 差 | Python v4 | Rust v4 | 差 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| det 预处理（resize + 归一化 + CHW） | 40.1 | **14.4** | −25.7 | 40.6 | 14.5 | −26.1 |
+| det 推理 + DB 后处理 | 219.9 | 202.0 | −17.9 | 349.7 | 332.9 | −16.8 |
+| cls + 裁剪/resize + rec | 41.7 | **7.9** | −33.8 | 46.2 | 12.7 | −33.5 |
+| **engine/detect 合计（不含读图）** | **301.0** | **225.1** | **−75.9** | **436.9** | **361.1** | **−75.9** |
+
+> Rust 的 `detect` 不含读图 2.6ms 与 ROI 拷贝 0.1ms；加上后整帧 227.8 / 363.8ms，与主表
+> 232.6 / 364.9ms 一致。Python 的 `engine(roi)` 本身不含 `cv2.imread`（3–4ms/帧）。
+> 各阶段在三组独立循环里各测 20 次，故三项差值之和（77.4 / 76.4）与合计差（75.9）差 1–2ms；
+> 以合计行为准。测量方式见 §7 的新增探针。
+
+三句话：
+
+1. **det 推理本身几乎一样。** 把 Python 的 det 推理单独计时（输入预热、20 次平均，本次会话）：
+   arena 关 217.3ms（p50 216.6）/ arena 开 **204.1ms**（p50 200.6）；Rust 的 det 推理 + 后处理
+   202.0ms（后处理 ~2ms）。arena 对齐后 v4 甚至出现反向（Python 329.1 vs Rust ~331，即
+   332.9 减掉 ~2ms 后处理），v3 剩 2%。**语言在这里没有可测贡献**——两边都是同一个
+   `onnxruntime` 1.28.0 的 CPU EP。
+   （arena 关时多出的 13ms 是 §3.3 的配置差，不是 numpy 的锅。）
+2. **det 预处理是纯 numpy 搬运。** Python 40.1ms 的内部拆解（3 轮中位）：`cv2.resize` 0.6ms、
+   `normalize()` **35.7ms**、`permute` 0.0ms、`expand_dims + astype` 3.0ms。`normalize` 就是
+   `(img.astype("float32") * scale - mean) / std`：对 736×3264×3 的输入，每一步都新建一个
+   28.8MB 的全尺寸临时数组，一帧要分配并读写 ~115MB。Rust 的 `resize_bilinear_hwc` +
+   `normalize_chw` 一趟写进 CHW，14.4ms。**这一项 26ms ≈ 总差距的 34%。**
+3. **cls + rec 段差 33–34ms，但不是「Rust 的 rec 推理更快」。** Python 单框 rec 孤立跑 7.8ms，
+   紧跟 det 后第一次跑 **23.9ms**、第二次 15.3ms，中间空转 20ms 后回到 9.9ms；C++ 的 `recMs`
+   （只包 rec `Run`）同样是 20–26ms，而 Rust 的 cls+rec 在同样「紧跟 det」的条件下是 8–13ms。
+   所以这段主要是 **det→rec 切换后的首帧惩罚**（更像 ORT 线程池的 spin/唤醒，而不是缓存：
+   中间空转 20ms 反而降到 9.9ms），Python 与 C++ 都付、Rust 付得少；机制未完全归因（列入 §8）。
+   **这一项 ~34ms ≈ 总差距的 45%。**
+
+**直接回答「是不是只是编程语言」**：不是——而且「语言」这个变量在模型执行里几乎不存在，
+三个实现最终都调 `onnxruntime` 的同一份 C++ 推理内核。真正的差距是**每帧在 Python 侧多做的
+宿主数据处理**：numpy 的 115MB 临时数组、逐框 crop/resize、det→rec 切换的首帧惩罚，合计 76ms；
+Rust 侧换成一次遍历的 SIMD 预处理 + 常驻 session，于是 301 → 225ms（主表口径 309 → 233ms）。
+换句话说，1.33× 的准确表述是「**去掉每帧约 76ms 的宿主侧开销**」，而不是「Rust 算得比
+Python 快 1.33 倍」。2.27× 里的 385/462ms 则是进程模型（§4.1），同样与语言无关。
+
+对简历的直接含义：这两个倍率只能挂在「每帧处理耗时 / 进程模型」上，不能写成
+「Rust 推理比 Python 快 1.3 倍」，也不该把 ORT 版本、opencv-rs、burn 算进这个倍率。
+
 ---
 
 ## 5. 结论：哪些说法成立
@@ -461,6 +514,7 @@ opencv-rs 在 Rust 侧的真实价值是**数值一致性**（`cv::warpPerspecti
 | 「替代原先 Python 中某些多模型串行的流程」 | ⚠️ 表述含糊 | Python 侧 `engine` 本身就是常驻的 3 模型串行；「每帧重建」只发生在 CLI 每帧起进程的调用方式 |
 | 「内存收益主要在 Python→C++ 这一段」 | ✅ 成立（且有量化） | v3 峰值 972→761（−22%），C++→Rust 761→736（−3%）；Rust 这一段换来的是再快 9%、内存安全与可维护性 |
 | 「升级 ORT 到最新能提速」 | ❌ 不成立（对本题） | 1.24.4→1.28.0/1.32.0 单帧 +5.7%/+2.8%（略慢），仅一次性初始化 −29% |
+| 「Rust 语言本身让推理快 1.2–1.3×」 | ❌ 不成立（本次拆解） | ORT 内核相同；差距来自 numpy 预处理 26ms + det→rec 首帧惩罚 ~34ms + det 推理侧 ~18ms（§4.6） |
 
 **如果只能留一句话：保留「快」；内存可以写，但必须带「同 arena 配置（开）」这个条件；
 删掉 burn；把「多模型串行」改成具体的调用方式差异（进程/session 重建）。**
@@ -574,6 +628,23 @@ RAPIDOCR_CPU_ARENA=0 RAPIDOCR_INTRA_THREADS=4 \
   --model v4 --reps 1 --warmup 1 --threshold 0.45 --subtitle-only --out /tmp/rust-arenaoff.json
 ```
 
+分阶段归因（§4.6，两次探针都只测、不改被测逻辑）：
+
+```bash
+# Rust：preprocess_det / detect_raw_boxes / detect / load_image / roi_copy 各自计时
+cargo build --release -p bench_subtitle_ocr --bin phase_probe
+taskset -c 0-3 env RAPIDOCR_INTRA_THREADS=4 ./target/release/phase_probe \
+  --dir packages/tmp/ocr-bench/oneframe-replay40 --model v3 --reps 20
+
+# Python：det_pre / det_full / engine 三段（与 Rust 同口径）
+taskset -c 0-3 packages/subtitle_ocr_py/.venv/bin/python \
+  tests/bench/subtitle_ocr/rust-vs-py/py_phase.py v3 20
+
+# Python det 预处理内部拆解（resize / normalize / permute / expand）
+taskset -c 0-3 packages/subtitle_ocr_py/.venv/bin/python \
+  tests/bench/subtitle_ocr/rust-vs-py/py_det_pre_breakdown.py
+```
+
 > 两处 env 探针都**只影响显式设置时**，默认行为与之前一致：
 > - `RAPIDOCR_CPU_ARENA=0`（`packages/rapidocr_ort/src/ep.rs`）：显式注册 CPU EP 并
 >   `DisableCpuMemArena`，用于内存归因。
@@ -587,6 +658,10 @@ RAPIDOCR_CPU_ARENA=0 RAPIDOCR_INTRA_THREADS=4 \
 | 文件 | 作用 |
 | --- | --- |
 | `tests/bench/subtitle_ocr/src/bin/probe.rs` | Rust 单帧探针（计时，未改实现逻辑） |
+| `tests/bench/subtitle_ocr/src/bin/phase_probe.rs` | Rust 分阶段探针（§4.6：det 预处理 / det 推理+后处理 / 完整 detect / 读图 / ROI） |
+| `tests/bench/subtitle_ocr/rust-vs-py/py_phase.py` | Python 分阶段探针（与 `phase_probe` 同口径） |
+| `tests/bench/subtitle_ocr/rust-vs-py/py_det_pre_breakdown.py` | Python det 预处理的 resize/normalize/permute 拆解 |
+| `tests/bench/subtitle_ocr/rust-vs-py/py_det_split.py` | Python det 的 pre/infer/post 三段（`--arena-on` 对齐 Rust） |
 | `packages/rapidocr_ort/src/ep.rs` | `RAPIDOCR_CPU_ARENA=0` arena 探针（默认不生效） |
 | `packages/rapidocr_ort/src/lib.rs` | `RAPIDOCR_INTRA_THREADS=N` 线程探针（默认不生效） |
 | `packages/subtitle_ocr_cpp/CMakeLists.txt` | ORT 目录/版本自动探测，`-DORT_DIR` 可切任意版本 |
@@ -595,6 +670,7 @@ RAPIDOCR_CPU_ARENA=0 RAPIDOCR_INTRA_THREADS=4 \
 | `tests/bench/subtitle_ocr/rust-vs-py/run.sh` | 跑批（`taskset 0-3`、显式 4 线程、cpp 三版本轮换顺序、可只跑一类） |
 | `tests/bench/subtitle_ocr/rust-vs-py/summarize.py` | 出表 |
 | `tests/bench/subtitle_ocr/rust-vs-py/results/` | 原始 JSON / cpp stdout+stderr / `summary.md` / `threadpool-check.txt` / `cpp-text-check.txt` |
+| `tests/bench/subtitle_ocr/rust-vs-py/results/phase/` | §4.6 的分阶段原始数据（三轮 + det 拆分 + 预处理拆解） |
 
 ---
 
@@ -629,11 +705,20 @@ RAPIDOCR_CPU_ARENA=0 RAPIDOCR_INTRA_THREADS=4 \
     仓库 JSON 字典转成 Python 需要的 txt（去首占位 + Python 自动补 blank/空格）。它验证的是
     「同一份 v3 权重、同一个 `ocr_frame` 流程」，但字典加载路径与 Rust/C++ 不同；若怀疑字典
     映射有偏移，应以逐字输出（本帧一致）和小规模 CER 复核。
-11. **v3 组的速度差距（1.33–1.48×）比 v4 组（1.18–1.25×）大**，原因未逐项拆解（可能来自
-    Python 端 v3 det/rec 的前后处理或 batch 策略）。引用时按「实测比值」引用，不要外推成
-    「v3 上 Rust 更强」这种结论。
+11. **v3 组的速度差距（1.33–1.48×）比 v4 组（1.18–1.25×）大**：§4.6 的逐阶段拆解给出了
+    主因——v3 的 det 推理只占 ~200ms，而 v4 占 ~340ms，所以**同样 ~76ms 的宿主侧开销**落在更小的
+    基数上，比值就更大。引用时仍按「实测比值」，不要外推成「v3 上 Rust 更强」。
 12. **C++ 的 `totalMs` 不可用**：它把 `modelLoadMs` 每帧重复计入（虚高 ~110ms/帧），
     本文一律用分相相加。若引用 cpp 自报的 `totalMs` 会得到偏高 40% 的数字。
 13. **C++ 的迁移链比值本身在漂**：Python→C++ 1.15–1.17×、C++→Rust 1.09–1.14×（两次全量
     会话）。C++ 与 Rust 的差距只有 20–35ms，已接近跨会话漂移量级；写简历用「累计 1.3×」
     比拆成两段更稳，拆段时要注明哪一次会话。
+14. **C++ 的分相账不完整**：`detMs/postMs/recMs` 不含 cls 与 warp 裁剪（实测每帧还有
+    ~4–14ms 未入账，`wall/帧 − modelLoad − 三相和` 得出），所以 §4.6 的分段表没有 C++ 列，
+    C++ 只用整帧 wall。C++ 的 `recMs` 只包 rec `Run`，与 Python/Rust 的「cls+裁剪+rec」不同口径。
+15. **det→rec 的首帧惩罚只测到现象、没归因到代码级**：Python 单框 rec 孤立 7.8ms、
+    紧跟 det 后 23.9ms（第二次 15.3ms、停 20ms 后 9.9ms），C++ 同量级，Rust 明显更低。
+    候选解释是 ORT 线程池的 spin/唤醒（空转 20ms 反而更快，说明不是纯粹的缓存冷暖），
+    但本次没有做 perf/ftrace 级验证，故 §4.6 只把它记为「可复现的测量事实」。
+16. **§4.6 的分段是独立循环测的**（每阶段各自 20 次），缓存/线程状态与真实流水线不完全相同；
+    可信的是同口径的 `engine`/`detect` 总和（与 §3.1 差 ≤2%）以及各阶段之间的**差值方向与量级**。
