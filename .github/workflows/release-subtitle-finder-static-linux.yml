@@ -1,0 +1,185 @@
+name: release-subtitle-finder-static-linux
+
+# 手动触发: 构建 subtitle_finder 的 Linux (x86_64-unknown-linux-gnu) 静态链接资产,
+# 上传到 subtitle-finder 对应 GitHub Release。
+#
+# 动机: v0.1.0 的 Linux 资产动态链接系统 OpenCV 5.0 (soname .500), 在装有 OpenCV 5.1
+# (.501) 的机器上因找不到 .500 而 exit 127。本 workflow 把 OpenCV 5.0 **静态**链进
+# 二进制, 消除对系统 OpenCV 版本的依赖。ffmpeg 家族仍动态链接, 随 zip 携带 .so。
+#
+# 资产形态: zip, 解压即 bin dir。zip 内平铺: 单文件二进制 + 所需 ffmpeg .so。
+# 运行时由 LocalDub 侧 (sf_ocr_pre) 注入 LD_LIBRARY_PATH=<bin dir> 找到 .so。
+# 命名: subtitle-finder-x86_64-unknown-linux-gnu.zip (与 v0.1.0 的 Linux 单文件名不同,
+# 故并存于同一 tag 不冲突)。
+#
+# 构建要点:
+#   - OpenCV 5.0.0 从源码编译为静态 world 库 (BUILD_SHARED_LIBS=OFF +
+#     BUILD_opencv_world=ON), 只编 core/imgproc/videoio; opencv-rust 只需链一个
+#     static=opencv_world, 规避多模块链接顺序问题 (见 twistedfall/opencv-rust#364)。
+#   - 只启用 WITH_FFMPEG, 其余视频后端 (GStreamer/VAAPI/...) 全关, 减少残留 .so。
+#   - opencv-rust 经 environment probe 指向静态库; bindgen 需要 clang/libclang。
+#   - 产物不依赖系统 OpenCV; 冒烟用 ldd 确认无 libopencv_*, 且 --help exit 0。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "上传目标 release tag"
+        type: string
+        default: "subtitle-finder-v0.1.1"
+      upload:
+        description: "构建后上传资产到 release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  OPENCV_VERSION: 5.0.0
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build clang libclang-dev pkg-config \
+            git curl ca-certificates \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+            zlib1g-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev
+          cmake --version
+          clang --version
+          rustc -vV
+          cargo -V
+
+      - name: cache static OpenCV
+        id: cache-opencv
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/opencv-static
+          key: opencv-${{ env.OPENCV_VERSION }}-static-world-linux-x64-v1
+
+      - name: build static OpenCV ${{ env.OPENCV_VERSION }}
+        if: steps.cache-opencv.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch ${{ env.OPENCV_VERSION }} \
+            https://github.com/opencv/opencv.git opencv-src
+
+          cmake -S opencv-src -B opencv-build -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST=core,imgproc,videoio \
+            -DBUILD_opencv_world=ON \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/opencv-static" \
+            -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
+            -DBUILD_opencv_java=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_apps=OFF \
+            -DWITH_FFMPEG=ON \
+            -DWITH_GSTREAMER=OFF -DWITH_VAAPI=OFF -DWITH_V4L=OFF -DWITH_1394=OFF \
+            -DWITH_OPENCL=OFF -DWITH_IPP=OFF -DWITH_OPENEXR=OFF \
+            -DOPENCV_GENERATE_PKGCONFIG=ON
+
+          ninja -C opencv-build install
+
+          echo "--- installed opencv libs ---"
+          find "${{ github.workspace }}/opencv-static" -name '*.a' | head -20
+          echo "--- include dir ---"
+          find "${{ github.workspace }}/opencv-static/include" -name version.hpp -path '*opencv2/core*'
+
+      - name: set linkage env
+        run: |
+          set -euxo pipefail
+          PREFIX="${{ github.workspace }}/opencv-static"
+
+          # 头文件目录名可能是 opencv4 / opencv5, 动态探测含 opencv2/core/version.hpp 的那层
+          INC_DIR=$(find "$PREFIX/include" -type d -name opencv2 | head -1 | xargs dirname)
+          test -f "$INC_DIR/opencv2/core/version.hpp" || {
+            echo "opencv version.hpp not found under $PREFIX/include" >&2; exit 1;
+          }
+          echo "OPENCV_INCLUDE_PATHS=$INC_DIR" >> "$GITHUB_ENV"
+
+          # world 静态库所在目录 (lib 或 lib64)
+          LIB_DIR=$(dirname "$(find "$PREFIX" -name 'libopencv_world.a' | head -1)")
+          test -n "$LIB_DIR" || { echo "libopencv_world.a not found" >&2; exit 1; }
+          echo "OPENCV_LINK_PATHS=$LIB_DIR" >> "$GITHUB_ENV"
+
+          # 只用 environment probe 指向静态库, 禁用 pkg_config/cmake/vcpkg 自动发现
+          echo "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg" >> "$GITHUB_ENV"
+          echo "OPENCV_LINK_LIBS=static=opencv_world,avcodec,avformat,avutil,swscale,swresample,z,dl,pthread" >> "$GITHUB_ENV"
+
+          echo "INC_DIR=$INC_DIR LIB_DIR=$LIB_DIR"
+
+      - name: build subtitle_finder (static OpenCV)
+        run: |
+          set -euxo pipefail
+          cargo build --release -p subtitle_finder --bin subtitle_finder
+          ls -lh target/release/subtitle_finder
+
+      - name: smoke test (no system OpenCV dependency, --help works)
+        run: |
+          set -euxo pipefail
+          BIN=target/release/subtitle_finder
+
+          echo "--- ldd ---"
+          ldd "$BIN" | tee ldd.txt
+          if grep -q 'libopencv' ldd.txt; then
+            echo "ERROR: binary still links system libopencv dynamically" >&2
+            exit 1
+          fi
+
+          # ffmpeg .so 此时尚未随包, 用系统 ffmpeg dev 库所在路径临时满足
+          export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+          "$BIN" --help > /dev/null
+          echo "smoke test OK (ldd clean, --help exit=0)"
+
+      - name: package zip (binary + ffmpeg .so)
+        run: |
+          set -euxo pipefail
+          OUT="$GITHUB_WORKSPACE/out"
+          STAGE="$OUT/stage"
+          mkdir -p "$STAGE"
+
+          cp target/release/subtitle_finder \
+            "$STAGE/subtitle-finder-x86_64-unknown-linux-gnu"
+
+          # 收集二进制实际依赖的非系统 .so (ffmpeg 家族), 平铺到 stage。
+          # 排除 libc/libm/libdl/libpthread/libgcc_s/libstdc++ 等系统库 (随发行版提供)。
+          echo "--- collecting runtime .so ---"
+          ldd "$STAGE/subtitle-finder-x86_64-unknown-linux-gnu" \
+            | awk '/=> \// {print $3}' \
+            | while read -r so; do
+                base=$(basename "$so")
+                case "$base" in
+                  libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libgcc_s.so.*|libstdc++.so.*|ld-linux*) ;;
+                  *) echo "  bundling $so"; cp -L "$so" "$STAGE/" ;;
+                esac
+              done
+
+          echo "--- stage contents ---"
+          ls -lh "$STAGE"
+
+          cd "$OUT"
+          zip -j subtitle-finder-x86_64-unknown-linux-gnu.zip stage/*
+          sha256sum subtitle-finder-x86_64-unknown-linux-gnu.zip \
+            | tee "$OUT/sha256.txt"
+          echo "OUT_DIR=$OUT" >> "$GITHUB_ENV"
+
+      - name: upload asset to release
+        if: ${{ github.event.inputs.upload != 'false' }}
+        run: |
+          set -euxo pipefail
+          gh release upload "${{ github.event.inputs.tag }}" \
+            "$OUT_DIR/subtitle-finder-x86_64-unknown-linux-gnu.zip" --clobber
+          echo "uploaded to ${{ github.event.inputs.tag }}"
+
+      - name: print sha256
+        run: cat "$OUT_DIR/sha256.txt"
