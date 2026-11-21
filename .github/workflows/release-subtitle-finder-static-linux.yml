@@ -196,9 +196,14 @@ jobs:
         if: ${{ github.event.inputs.upload != 'false' }}
         run: |
           set -euxo pipefail
-          gh release upload "${{ github.event.inputs.tag }}" \
+          TAG="${{ github.event.inputs.tag }}"
+          # tag 可能尚无 release, 先创建空 release (--generate-notes 避免空 body 报错)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" \
             "$OUT_DIR/subtitle-finder-x86_64-unknown-linux-gnu.zip" --clobber
-          echo "uploaded to ${{ github.event.inputs.tag }}"
+          echo "uploaded to $TAG"
 
       - name: print sha256
         run: cat "$OUT_DIR/sha256.txt"
