@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/opencv-static
-          key: opencv-${{ env.OPENCV_VERSION }}-static-world-linux-x64-v1
+          key: opencv-${{ env.OPENCV_VERSION }}-static-world-linux-x64-v2-no-lapack-tti
 
       - name: build static OpenCV ${{ env.OPENCV_VERSION }}
         if: steps.cache-opencv.outputs.cache-hit != 'true'
@@ -87,6 +87,7 @@ jobs:
             -DWITH_GSTREAMER=OFF -DWITH_VAAPI=OFF -DWITH_V4L=OFF -DWITH_1394=OFF \
             -DWITH_GTK=OFF -DWITH_QT=OFF -DWITH_WIN32UI=OFF \
             -DWITH_OPENCL=OFF -DWITH_IPP=OFF -DWITH_OPENEXR=OFF \
+            -DWITH_LAPACK=OFF -DWITH_TTI=OFF \
             -DOPENCV_GENERATE_PKGCONFIG=ON
 
           ninja -C opencv-build install
