@@ -78,13 +78,14 @@ jobs:
           cmake -S opencv-src -B opencv-build -GNinja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_LIST=core,imgproc,videoio \
+            -DBUILD_LIST=core,imgproc,videoio,highgui \
             -DBUILD_opencv_world=ON \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/opencv-static" \
             -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
             -DBUILD_opencv_java=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_apps=OFF \
             -DWITH_FFMPEG=ON \
             -DWITH_GSTREAMER=OFF -DWITH_VAAPI=OFF -DWITH_V4L=OFF -DWITH_1394=OFF \
+            -DWITH_GTK=OFF -DWITH_QT=OFF -DWITH_WIN32UI=OFF \
             -DWITH_OPENCL=OFF -DWITH_IPP=OFF -DWITH_OPENEXR=OFF \
             -DOPENCV_GENERATE_PKGCONFIG=ON
 
@@ -148,13 +149,15 @@ jobs:
           STAGE="$OUT/stage"
           mkdir -p "$STAGE"
 
-          cp target/release/subtitle_finder \
-            "$STAGE/subtitle-finder-x86_64-unknown-linux-gnu"
+          # 二进制名必须与 LocalDub 的 ReleaseBinSpec.bin ("subtitle-finder") 一致:
+          # zip:true 时 release_bin_path() 返回 bin_dir/<bin>。资产 zip 的文件名
+          # 仍是 subtitle-finder-x86_64-unknown-linux-gnu.zip (对外发布名)。
+          cp target/release/subtitle_finder "$STAGE/subtitle-finder"
 
           # 收集二进制实际依赖的非系统 .so (ffmpeg 家族), 平铺到 stage。
           # 排除 libc/libm/libdl/libpthread/libgcc_s/libstdc++ 等系统库 (随发行版提供)。
           echo "--- collecting runtime .so ---"
-          ldd "$STAGE/subtitle-finder-x86_64-unknown-linux-gnu" \
+          ldd "$STAGE/subtitle-finder" \
             | awk '/=> \// {print $3}' \
             | while read -r so; do
                 base=$(basename "$so")
