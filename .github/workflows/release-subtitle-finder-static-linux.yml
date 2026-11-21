@@ -115,15 +115,22 @@ jobs:
           THIRDPARTY="$(find "$LIB_DIR" -type d -name 3rdparty | head -1)"
           echo "OPENCV_LINK_PATHS=$LIB_DIR,$THIRDPARTY" >> "$GITHUB_ENV"
 
+          # OpenCV 编出的 OpenJPEG 文件名是 liblibopenjp2.a (多一个 lib), opencv-rust
+          # 会把库名 "libopenjp2" 映射成 -lopenjp2 → 找不到。软链成标准名 libopenjp2.a
+          # 放到 LIB_DIR, 让 -lopenjp2 能解析。
+          OPJ="$(find "$THIRDPARTY" -name 'liblibopenjp2.a' | head -1)"
+          test -n "$OPJ" || { echo "liblibopenjp2.a not found" >&2; exit 1; }
+          ln -sf "$OPJ" "$LIB_DIR/libopenjp2.a"
+
           # 只用 environment probe 指向静态库, 禁用 pkg_config/cmake/vcpkg 自动发现。
           # opencv_world.a 不自动包含其 3rdparty 依赖, 须显式列出:
-          #   ittnotify  (Intel TTI, __itt_* 符号)
-          #   libopenjp2 (JPEG 2000, opj_* 符号; OpenCV 编出来的文件名是 liblibopenjp2.a)
+          #   ittnotify (Intel TTI, __itt_* 符号)
+          #   openjp2   (JPEG 2000, opj_* 符号; 见上方软链)
           # 顺序: opencv_world 在前, 它依赖的库在后。
           echo "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg" >> "$GITHUB_ENV"
-          echo "OPENCV_LINK_LIBS=static=opencv_world,ittnotify,libopenjp2,avcodec,avformat,avutil,swscale,swresample,z,dl,pthread" >> "$GITHUB_ENV"
+          echo "OPENCV_LINK_LIBS=static=opencv_world,ittnotify,openjp2,avcodec,avformat,avutil,swscale,swresample,z,dl,pthread" >> "$GITHUB_ENV"
 
-          echo "INC_DIR=$INC_DIR LIB_DIR=$LIB_DIR THIRDPARTY=$THIRDPARTY"
+          echo "INC_DIR=$INC_DIR LIB_DIR=$LIB_DIR THIRDPARTY=$THIRDPARTY OPJ=$OPJ"
 
       - name: build subtitle_finder (static OpenCV)
         run: |
