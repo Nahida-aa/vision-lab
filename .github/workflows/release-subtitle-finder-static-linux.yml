@@ -109,16 +109,21 @@ jobs:
           }
           echo "OPENCV_INCLUDE_PATHS=$INC_DIR" >> "$GITHUB_ENV"
 
-          # world 静态库所在目录 (lib 或 lib64)
+          # world 静态库所在目录 (lib 或 lib64) + 其 3rdparty 子目录
           LIB_DIR=$(dirname "$(find "$PREFIX" -name 'libopencv_world.a' | head -1)")
           test -n "$LIB_DIR" || { echo "libopencv_world.a not found" >&2; exit 1; }
-          echo "OPENCV_LINK_PATHS=$LIB_DIR" >> "$GITHUB_ENV"
+          THIRDPARTY="$(find "$LIB_DIR" -type d -name 3rdparty | head -1)"
+          echo "OPENCV_LINK_PATHS=$LIB_DIR,$THIRDPARTY" >> "$GITHUB_ENV"
 
-          # 只用 environment probe 指向静态库, 禁用 pkg_config/cmake/vcpkg 自动发现
+          # 只用 environment probe 指向静态库, 禁用 pkg_config/cmake/vcpkg 自动发现。
+          # opencv_world.a 不自动包含其 3rdparty 依赖, 须显式列出:
+          #   ittnotify  (Intel TTI, __itt_* 符号)
+          #   libopenjp2 (JPEG 2000, opj_* 符号; OpenCV 编出来的文件名是 liblibopenjp2.a)
+          # 顺序: opencv_world 在前, 它依赖的库在后。
           echo "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg" >> "$GITHUB_ENV"
-          echo "OPENCV_LINK_LIBS=static=opencv_world,avcodec,avformat,avutil,swscale,swresample,z,dl,pthread" >> "$GITHUB_ENV"
+          echo "OPENCV_LINK_LIBS=static=opencv_world,ittnotify,libopenjp2,avcodec,avformat,avutil,swscale,swresample,z,dl,pthread" >> "$GITHUB_ENV"
 
-          echo "INC_DIR=$INC_DIR LIB_DIR=$LIB_DIR"
+          echo "INC_DIR=$INC_DIR LIB_DIR=$LIB_DIR THIRDPARTY=$THIRDPARTY"
 
       - name: build subtitle_finder (static OpenCV)
         run: |
