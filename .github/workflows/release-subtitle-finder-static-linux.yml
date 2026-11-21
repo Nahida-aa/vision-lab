@@ -146,8 +146,10 @@ jobs:
 
           echo "--- ldd ---"
           ldd "$BIN" | tee ldd.txt
-          if grep -q 'libopencv' ldd.txt; then
-            echo "ERROR: binary still links system libopencv dynamically" >&2
+          # 只拒绝系统 OpenCV 的动态 soname (.500/.501)——这正是原始 bug 的根因。
+          # OpenCV 本体已静态链入; ffmpeg 及其传递依赖是允许的 (随 zip 携带)。
+          if grep -qE 'libopencv_(core|imgproc|videoio)\.so\.(500|501)' ldd.txt; then
+            echo "ERROR: binary still links system OpenCV (.500/.501) dynamically" >&2
             exit 1
           fi
 
