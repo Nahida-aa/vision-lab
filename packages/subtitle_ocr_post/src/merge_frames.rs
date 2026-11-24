@@ -127,6 +127,36 @@ pub fn base_merge_frames(frames: &[FrameResult], args: &MergeFramesArgs) -> Vec<
             current_frame_count = 0;
             current_gaps = Vec::new();
         }
+        // 端点重复帧：`subtitle-ocr --dir` 对每个稳定 keyframe 窗口做一次识别, 却把
+        // 同一结果写成 start / end 两个 FrameResult (文本与置信度完全相同)。这种配对
+        // 不是两次采样, 若把配对内部跨度当成「帧距」会污染典型间距基线 (实测中位数
+        // 被压到 183ms), 让同一句在窗口时长 > K×基线时被误切 (见 tests 里的
+        // `merge_frames_collapses_endpoint_duplicates`)。这里只延长 end、保留证据帧,
+        // 不记录间距、不增加观测数——基线只由真正的窗口间间隔构成。
+        //
+        // 守卫: 只折叠「紧跟在窗口边界抖动 (<100ms) 之后」的那一帧。固定节奏采样
+        // (每个 sample 间距数百 ms) 不会命中, 保持原有相对断段行为不变。
+        const ENDPOINT_DUP_MAX_BOUNDARY_GAP_MS: u32 = 100;
+        let is_endpoint_dup = !current_text.is_empty()
+            && gap_start == 0
+            && normalize(&f.text) == normalize(&current_text)
+            && current_gaps
+                .last()
+                .is_some_and(|g| *g <= ENDPOINT_DUP_MAX_BOUNDARY_GAP_MS)
+            && current_frames.last().is_some_and(|last| {
+                normalize(&last.text) == normalize(&f.text)
+                    && (last.text_confidence - f.text_confidence as f32).abs() <= 1e-6
+            });
+        if is_endpoint_dup {
+            current_confidences.push(f.text_confidence as f32);
+            current_end = f.timestamp as u32;
+            current_frames.push(SegmentFrame {
+                timestamp: f.timestamp as u32,
+                text: f.text.clone(),
+                text_confidence: f.text_confidence as f32,
+            });
+            continue;
+        }
         // 相对簇断段：两帧宽松 / 多帧严格（系数 K）。
         let gap = (f.timestamp as u32).saturating_sub(current_end);
         let too_far = !current_text.is_empty() && {
@@ -333,9 +363,13 @@ mod tests {
     use super::*;
 
     fn make_frame(text: &str, ts: u64) -> FrameResult {
+        make_frame_conf(text, ts, 0.9)
+    }
+
+    fn make_frame_conf(text: &str, ts: u64, conf: f64) -> FrameResult {
         FrameResult {
             text: text.to_string(),
-            text_confidence: 0.9,
+            text_confidence: conf,
             boxes: vec![],
             x_range: [0.0, 0.0],
             y_range: [0.0, 0.0],
@@ -418,6 +452,35 @@ mod tests {
         assert_eq!(segs[0].base.start_ms, 1000);
         assert_eq!(segs[0].base.end_ms, 2000);
         assert_eq!(segs[1].base.start_ms, 7000);
+    }
+
+    #[test]
+    fn merge_frames_collapses_endpoint_duplicates() {
+        // 复现「师尊带我炸修真/16」：一句字幕跨 3 个稳定 keyframe 窗口，每个窗口被
+        // `--dir` 写成 start/end 两个同置信度帧。窗口内跨度（434 / 334 / 768ms）
+        // 不是采样间距：若计入基线，中位数会被边界抖动（33/32ms）压到 183ms，
+        // 4×183=732 < 768 → 同一句被切开并留下 10300–10300 的零时长孤儿段。
+        let frames = vec![
+            make_frame_conf("你最需要小心的人是苍明剑尊百里块", 5833, 0.9577),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里块", 8666, 0.9577),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里", 8699, 0.9900),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里", 9133, 0.9900),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里", 9166, 0.9898),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里", 9500, 0.9898),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里", 9532, 0.9885),
+            make_frame_conf("你最需要小心的人是苍明剑尊百里", 10300, 0.9885),
+        ];
+        let segs = base_merge_frames(&frames, &MergeFramesArgs::default());
+        // 文本从「百里块」变「百里」→ 两个 run，但第二个 run 不被 768ms 切开。
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[1].base.start_ms, 8699);
+        assert_eq!(segs[1].base.end_ms, 10300);
+
+        let merged = merge_frames(&frames, &MergeFramesArgs::default());
+        assert_eq!(merged.segments.len(), 1);
+        assert_eq!(merged.segments[0].base.start_ms, 5833);
+        assert_eq!(merged.segments[0].base.end_ms, 10300);
+        assert!(merged.segments.iter().all(|s| s.base.end_ms > s.base.start_ms));
     }
 
     #[test]
