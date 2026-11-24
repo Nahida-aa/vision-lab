@@ -9,15 +9,17 @@ name: release-post-windows
 # 自带运行时的单 exe，zip 里只平铺 exe 即可。与 release-windows.yml（重型
 # subtitle_ocr / subtitle_finder，需 opencv+ffmpeg）正交。
 #
-# 命名: subtitle_ocr_post-x86_64-pc-windows-msvc.zip，上传到 <tag>。
+# 命名: subtitle-ocr-post-x86_64-pc-windows-msvc.zip（内层 exe 名 subtitle-ocr-post.exe），
+# 与 v0.1.3 及 LocalDub 的 ReleaseBinSpec 命名约定一致（hyphen 而非 cargo target 的
+# 下划线名）。上传到 <tag>。
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "上传目标 release tag（默认 subtitle-ocr-post-v0.1.2）"
+        description: "上传目标 release tag（默认 subtitle-ocr-post-v0.1.4）"
         type: string
-        default: "subtitle-ocr-post-v0.1.2"
+        default: "subtitle-ocr-post-v0.1.4"
       threshold:
         description: "构建阈值（预留，暂未用）"
         type: string
@@ -58,14 +60,16 @@ jobs:
           $outDir = "$env:RUNNER_TEMP\out"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           $b = "subtitle_ocr_post"
-          $staging = "$outDir\$b"
+          $binName = "subtitle-ocr-post"
+          $staging = "$outDir\$binName"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
-          Copy-Item ".\target\release\$b.exe" $staging
-          $asset = "$outDir\$b-x86_64-pc-windows-msvc.zip"
+          # cargo target 名是 subtitle_ocr_post，发布名沿用 hyphen（LocalDub spec 约定）。
+          Copy-Item ".\target\release\$b.exe" "$staging\$binName.exe"
+          $asset = "$outDir\$binName-x86_64-pc-windows-msvc.zip"
           Compress-Archive -Path "$staging\*" -DestinationPath $asset -Force
           $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
           Write-Host "ASSET=$asset SHA256=$hash SIZE=$((Get-Item $asset).Length)"
-          echo "$b-x86_64-pc-windows-msvc.zip`t$hash" >> "$outDir\sha256.txt"
+          echo "$binName-x86_64-pc-windows-msvc.zip`t$hash" >> "$outDir\sha256.txt"
           echo "OUT_DIR=$outDir" >> $env:GITHUB_ENV
 
       - name: upload assets to release
