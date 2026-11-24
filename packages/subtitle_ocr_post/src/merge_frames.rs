@@ -442,6 +442,8 @@ mod tests {
     fn base_merge_splits_multi_frame_relative() {
         // 多帧模式：已建立节奏基线（典型间距 1000ms），当前间距 5000ms 远超
         // 系数 K=4 的阈值（4×1000=4000），即使未到硬上限 5000 也断成两段。
+        // 同时守卫端点折叠：这里的置信度也完全相同（make_frame 统一 0.9），
+        // 但间距不满足「<100ms 窗口边界抖动」，因此不得被当成端点重复折叠。
         let frames = vec![
             make_frame("啊", 1000),
             make_frame("啊", 2000),
@@ -475,12 +477,30 @@ mod tests {
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[1].base.start_ms, 8699);
         assert_eq!(segs[1].base.end_ms, 10300);
+        // 折叠只影响节奏基线，证据帧与 frame_count 仍保留原始 6 帧。
+        assert_eq!(segs[1].frames.as_ref().map(Vec::len), Some(6));
+        assert_eq!(segs[1].frame_count, Some(6));
 
         let merged = merge_frames(&frames, &MergeFramesArgs::default());
         assert_eq!(merged.segments.len(), 1);
         assert_eq!(merged.segments[0].base.start_ms, 5833);
         assert_eq!(merged.segments[0].base.end_ms, 10300);
         assert!(merged.segments.iter().all(|s| s.base.end_ms > s.base.start_ms));
+    }
+
+    #[test]
+    fn base_merge_endpoint_duplicate_does_not_bridge_large_gap() {
+        // 端点折叠不是无条件去重：同文本同置信度但间隔很大（同一句再次出现）时
+        // 仍必须断段，避免把两次显示合成一句。
+        let frames = vec![
+            make_frame("啊", 1000),
+            make_frame("啊", 7000),
+            make_frame("啊", 20000),
+        ];
+        let segs = base_merge_frames(&frames, &MergeFramesArgs::default());
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0].base.end_ms, 7000);
+        assert_eq!(segs[1].base.start_ms, 20000);
     }
 
     #[test]
