@@ -1,0 +1,261 @@
+name: release-subtitle-ocr-static-linux
+
+# 手动触发: 构建 subtitle_ocr 的 Linux (x86_64-unknown-linux-gnu) 静态 OpenCV 资产,
+# 上传到 subtitle-ocr 对应 GitHub Release。
+#
+# 动机: subtitle-ocr-v0.1.1 的 Linux 裸二进制动态链接系统 OpenCV 5.0 (soname .500),
+# 在装有 OpenCV 5.1 (.501) 的机器上因找不到 .500 而 exit 127。本 workflow 把
+# OpenCV 5.0 **静态**链进二进制, 消除对系统 OpenCV 版本的依赖 (与
+# release-subtitle-finder-static-linux.yml 同一方案)。ffmpeg 家族与 onnxruntime
+# 仍动态链接, 随 zip 携带 .so。
+#
+# 资产形态: zip, 解压即 bin dir。zip 内平铺: 单文件二进制 + 所需 .so。
+# 运行时由 LocalDub 侧 (sf_ocr_pre) 注入 LD_LIBRARY_PATH=<bin dir> 找到 .so。
+# 命名: subtitle-ocr-x86_64-unknown-linux-gnu.zip (与 v0.1.1 的 Linux 裸二进制
+# 单文件名 subtitle-ocr-x86_64-unknown-linux-gnu 不同, 故并存于同一 tag 不冲突)。
+# zip 内二进制名 subtitle-ocr: LocalDub 的 ReleaseBinSpec.bin = "subtitle-ocr",
+# zip:true 时 release_bin_path() 返回 bin_dir/<bin>。
+#
+# 构建要点:
+#   - OpenCV 5.0.0 从源码编译为静态 world 库 (BUILD_SHARED_LIBS=OFF +
+#     BUILD_opencv_world=ON), 只编 core/imgproc/videoio/highgui; opencv-rust 只需
+#     链一个 static=opencv_world, 规避多模块链接顺序问题 (见 twistedfall/opencv-rust#364)。
+#   - 只启用 WITH_FFMPEG, 其余视频后端 (GStreamer/VAAPI/...) 全关, 减少残留 .so。
+#   - opencv-rust 经 environment probe 指向静态库; bindgen 需要 clang/libclang。
+#   - onnxruntime 由 ort 的 download-binaries 拉 prebuilt; 是否静态/动态以 ldd 为准,
+#     动态则随 zip 携带 libonnxruntime.so*。
+#   - 冒烟: ldd 不得出现 libopencv_*.so.500/.501; 在只含收集到的 .so 的目录下
+#     LD_LIBRARY_PATH 指向它, subtitle-ocr --help 必须 exit 0。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "上传目标 release tag"
+        type: string
+        default: "subtitle-ocr-v0.1.1"
+      upload:
+        description: "构建后上传资产到 release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  OPENCV_VERSION: 5.0.0
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build clang libclang-dev pkg-config \
+            git curl ca-certificates zip \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+            zlib1g-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev
+          cmake --version
+          clang --version
+          rustc -vV
+          cargo -V
+
+      # 与 finder 共用同一 cache key: 两处 OpenCV 构建参数完全一致, 命中即免重复编译。
+      - name: cache static OpenCV
+        id: cache-opencv
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/opencv-static
+          key: opencv-${{ env.OPENCV_VERSION }}-static-world-linux-x64-v3-no-lapack-tti-jpeg-webp
+
+      - name: build static OpenCV ${{ env.OPENCV_VERSION }}
+        if: steps.cache-opencv.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch ${{ env.OPENCV_VERSION }} \
+            https://github.com/opencv/opencv.git opencv-src
+
+          cmake -S opencv-src -B opencv-build -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST=core,imgproc,videoio,highgui \
+            -DBUILD_opencv_world=ON \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/opencv-static" \
+            -DBUILD_DOCS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
+            -DBUILD_opencv_java=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_apps=OFF \
+            -DWITH_FFMPEG=ON \
+            -DWITH_GSTREAMER=OFF -DWITH_VAAPI=OFF -DWITH_V4L=OFF -DWITH_1394=OFF \
+            -DWITH_GTK=OFF -DWITH_QT=OFF -DWITH_WIN32UI=OFF \
+            -DWITH_OPENCL=OFF -DWITH_IPP=OFF \
+            -DWITH_LAPACK=OFF -DWITH_TTI=OFF \
+            -DWITH_JPEG=OFF -DWITH_WEBP=OFF -DWITH_PNG=OFF -DWITH_TIFF=OFF -DWITH_OPENEXR=OFF \
+            -DOPENCV_GENERATE_PKGCONFIG=ON
+
+          ninja -C opencv-build install
+
+          echo "--- installed opencv libs ---"
+          find "${{ github.workspace }}/opencv-static" -name '*.a' | head -20
+          echo "--- include dir ---"
+          find "${{ github.workspace }}/opencv-static/include" -name version.hpp -path '*opencv2/core*'
+
+      - name: set linkage env
+        run: |
+          set -euxo pipefail
+          PREFIX="${{ github.workspace }}/opencv-static"
+
+          # 头文件目录名可能是 opencv4 / opencv5, 动态探测含 opencv2/core/version.hpp 的那层
+          INC_DIR=$(find "$PREFIX/include" -type d -name opencv2 | head -1 | xargs dirname)
+          test -f "$INC_DIR/opencv2/core/version.hpp" || {
+            echo "opencv version.hpp not found under $PREFIX/include" >&2; exit 1;
+          }
+          echo "OPENCV_INCLUDE_PATHS=$INC_DIR" >> "$GITHUB_ENV"
+
+          # world 静态库所在目录 (lib 或 lib64) + 其 3rdparty 子目录
+          LIB_DIR=$(dirname "$(find "$PREFIX" -name 'libopencv_world.a' | head -1)")
+          test -n "$LIB_DIR" || { echo "libopencv_world.a not found" >&2; exit 1; }
+          THIRDPARTY="$(find "$LIB_DIR" -type d -name 3rdparty | head -1)"
+          echo "OPENCV_LINK_PATHS=$LIB_DIR,$THIRDPARTY" >> "$GITHUB_ENV"
+
+          # OpenCV 编出的 OpenJPEG 文件名是 liblibopenjp2.a (多一个 lib), opencv-rust
+          # 会把库名 "libopenjp2" 映射成 -lopenjp2 → 找不到。软链成标准名 libopenjp2.a
+          # 放到 LIB_DIR, 让 -lopenjp2 能解析。
+          OPJ="$(find "$THIRDPARTY" -name 'liblibopenjp2.a' | head -1)"
+          test -n "$OPJ" || { echo "liblibopenjp2.a not found" >&2; exit 1; }
+          ln -sf "$OPJ" "$LIB_DIR/libopenjp2.a"
+
+          # 只用 environment probe 指向静态库, 禁用 pkg_config/cmake/vcpkg 自动发现。
+          # opencv_world.a 不自动包含其 3rdparty 依赖, 须显式列出:
+          #   ittnotify (Intel TTI, __itt_* 符号)
+          #   openjp2   (JPEG 2000, opj_* 符号; 见上方软链)
+          # 顺序: opencv_world 在前, 它依赖的库在后。
+          echo "OPENCV_DISABLE_PROBES=pkg_config,cmake,vcpkg" >> "$GITHUB_ENV"
+          echo "OPENCV_LINK_LIBS=static=opencv_world,ittnotify,openjp2,avcodec,avformat,avutil,swscale,swresample,z,dl,pthread" >> "$GITHUB_ENV"
+
+          echo "INC_DIR=$INC_DIR LIB_DIR=$LIB_DIR THIRDPARTY=$THIRDPARTY OPJ=$OPJ"
+
+      - name: build subtitle_ocr (static OpenCV)
+        run: |
+          set -euxo pipefail
+          cargo build --release -p subtitle_ocr --bin subtitle_ocr
+          ls -lh target/release/subtitle_ocr
+
+      - name: package zip (binary + non-system .so)
+        run: |
+          set -euxo pipefail
+          OUT="$GITHUB_WORKSPACE/out"
+          STAGE="$OUT/stage"
+          rm -rf "$OUT"; mkdir -p "$STAGE"
+
+          # 二进制名必须与 LocalDub 的 ReleaseBinSpec.bin ("subtitle-ocr") 一致:
+          # zip:true 时 release_bin_path() 返回 bin_dir/<bin>。资产 zip 的文件名
+          # 仍是 subtitle-ocr-x86_64-unknown-linux-gnu.zip (对外发布名)。
+          cp target/release/subtitle_ocr "$STAGE/subtitle-ocr"
+          chmod +x "$STAGE/subtitle-ocr"
+
+          # ort 的 prebuilt onnxruntime 可能不在默认加载路径 (ldd 报 not found);
+          # 先在 target 目录里找同名 .so, 把其目录补进解析路径, 再重新 ldd。
+          EXTRA_LIB_DIRS=""
+          for attempt in 1 2; do
+            if ! ldd "$STAGE/subtitle-ocr" | grep -q 'not found'; then break; fi
+            echo "--- ldd has unresolved libs, searching under target/ (attempt $attempt) ---"
+            for base in $(ldd "$STAGE/subtitle-ocr" | awk '/not found/ {print $1}'); do
+              hit=$(find target -name "$base" -type f | head -1)
+              if [ -n "$hit" ]; then
+                echo "  found $base -> $hit"
+                EXTRA_LIB_DIRS="$(dirname "$hit"):$EXTRA_LIB_DIRS"
+              else
+                echo "  $base not found under target/" >&2
+              fi
+            done
+            export LD_LIBRARY_PATH="$EXTRA_LIB_DIRS${LD_LIBRARY_PATH:-}"
+          done
+
+          echo "--- ldd after resolution ---"
+          ldd "$STAGE/subtitle-ocr" | tee ldd-stage.txt
+          if grep -q 'not found' ldd-stage.txt; then
+            echo "ERROR: unresolved shared libraries remain" >&2; exit 1
+          fi
+
+          # 收集二进制实际依赖的非系统 .so (ffmpeg 家族 + onnxruntime 等), 平铺到 stage。
+          # 排除 libc/libm/libdl/libpthread/libgcc_s/libstdc++ 等系统库 (随发行版提供)。
+          # 关键: 落盘文件名必须用 soname (ldd 第 1 列, 即 DT_NEEDED 查的名字), 不能用
+          # 解析后的真实路径 basename (如 libavcodec.so.60.31.102) —— 否则运行时
+          # LD_LIBRARY_PATH 下按 libavcodec.so.60 查找会落空。
+          echo "--- collecting runtime .so ---"
+          ldd "$STAGE/subtitle-ocr" \
+            | awk '/=> \// {print $1, $3}' \
+            | while read -r name so; do
+                case "$name" in
+                  libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libgcc_s.so.*|libstdc++.so.*|ld-linux*) ;;
+                  *) echo "  bundling $name ($so)"; cp -L "$so" "$STAGE/$name" ;;
+                esac
+              done
+
+          echo "--- stage contents ---"
+          ls -lh "$STAGE"
+          if ls "$STAGE" | grep -q '^libonnxruntime'; then
+            echo "onnxruntime bundled (dynamic)"
+          else
+            echo "onnxruntime not in ldd -> statically linked"
+          fi
+          echo "STAGE_DIR=$STAGE" >> "$GITHUB_ENV"
+
+      - name: smoke test (no system OpenCV dependency, --help works with bundled .so)
+        run: |
+          set -euxo pipefail
+          BIN="$STAGE_DIR/subtitle-ocr"
+
+          # 只允许从 stage 目录解析随包 .so, 模拟发布后的 bin dir 布局。
+          export LD_LIBRARY_PATH="$STAGE_DIR:${LD_LIBRARY_PATH:-}"
+
+          echo "--- ldd ---"
+          ldd "$BIN" | tee ldd-final.txt
+          # 只拒绝系统 OpenCV 的动态 soname (.500/.501)——这正是原始 bug 的根因。
+          # OpenCV 本体已静态链入; ffmpeg / onnxruntime 等是允许的 (随 zip 携带)。
+          if grep -qE 'libopencv_(core|imgproc|videoio)\.so\.(500|501)' ldd-final.txt; then
+            echo "ERROR: binary still links system OpenCV (.500/.501) dynamically" >&2
+            exit 1
+          fi
+          if grep -q 'not found' ldd-final.txt; then
+            echo "ERROR: unresolved shared libraries with bundled .so" >&2
+            exit 1
+          fi
+
+          "$BIN" --help > /dev/null
+          echo "smoke test OK (ldd clean, --help exit=0)"
+
+      - name: zip + sha256
+        run: |
+          set -euxo pipefail
+          OUT="$GITHUB_WORKSPACE/out"
+          cd "$OUT"
+          rm -f subtitle-ocr-x86_64-unknown-linux-gnu.zip
+          zip -j subtitle-ocr-x86_64-unknown-linux-gnu.zip stage/*
+          sha256sum subtitle-ocr-x86_64-unknown-linux-gnu.zip \
+            | tee "$OUT/sha256.txt"
+          ls -l subtitle-ocr-x86_64-unknown-linux-gnu.zip
+          echo "OUT_DIR=$OUT" >> "$GITHUB_ENV"
+
+      - name: upload asset to release
+        if: ${{ github.event.inputs.upload != 'false' }}
+        run: |
+          set -euxo pipefail
+          TAG="${{ github.event.inputs.tag }}"
+          # tag 可能尚无 release, 先创建空 release (--generate-notes 避免空 body 报错)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" \
+            "$OUT_DIR/subtitle-ocr-x86_64-unknown-linux-gnu.zip" --clobber
+          echo "uploaded to $TAG"
+
+      - name: print sha256
+        run: cat "$OUT_DIR/sha256.txt"
